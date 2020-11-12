@@ -5,7 +5,7 @@ import click
 from aiostream import stream, pipe
 
 
-__version__ = "0.0.0"
+__version__ = "0.1.0"
 
 
 async def run(surl, mburl):
