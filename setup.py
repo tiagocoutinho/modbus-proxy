@@ -8,7 +8,8 @@
 
 """The setup script."""
 
-from setuptools import setup, find_packages
+from setuptools import setup
+
 
 with open('README.md') as readme_file:
     readme = readme_file.read()
@@ -54,7 +55,7 @@ setup(
     include_package_data=True,
     keywords='modbus, tcp, proxy',
     name='modbus-proxy',
-    packages=find_packages(),
+    py_modules=['modbus_proxy'],
     setup_requires=setup_requirements,
     test_suite='tests',
     tests_require=test_requirements,
