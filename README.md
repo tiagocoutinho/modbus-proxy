@@ -1,19 +1,24 @@
 # ModBus TCP proxy
 
-[![ModBus TCP proxy](https://img.shields.io/pypi/v/modbus-proxy.svg)](https://pypi.python.org/pypi/modbus-proxy)
+[![ModBus proxy][pypi-version]](https://pypi.python.org/pypi/modbus-proxy)
+[![Python Versions][pypi-python-versions]](https://pypi.python.org/pypi/modbus-proxy)
+[![Pypi status][pypi-status]](https://pypi.python.org/pypi/modbus-proxy)
+![License][license]
 
-
-[![ModBus TCP proxy updates](https://pyup.io/repos/github/tiagocoutinho/modbus-proxy/shield.svg)](https://pyup.io/repos/github/tiagocoutinho/modbus-proxy/)
-
-Many modbus devices support only one or very few clients. This proxy acts as a bridge between the client and the modbus device. This allows multiple clients to communicate with the same modbus device.
+Many modbus devices support only one or very few clients. This proxy acts as a bridge between the client and the modbus device. It can be seen as a
+layer 7 reverse proxy.
+This allows multiple clients to communicate with the same modbus device.
 
 When multiple clients are connected, cross messages are avoided by serializing communication on a first come first served REQ/REP basis.
 
 ## Installation
 
-From within your favorite python environment type:
+From within your favorite python 3 environment type:
 
 `$ pip install modbus-proxy`
+
+Note: On some systems `pip` points to a python 2 installation.
+You might need to use `pip3` command instead.
 
 ## Running the server
 
@@ -69,3 +74,8 @@ holding registers: [1, 2, 3, 4]
 ### Contributors
 
 None yet. Why not be the first?
+
+[pypi-python-versions]: https://img.shields.io/pypi/pyversions/modbus-proxy.svg
+[pypi-version]: https://img.shields.io/pypi/v/modbus-proxy.svg
+[pypi-status]: https://img.shields.io/pypi/status/modbus-proxy.svg
+[license]: https://img.shields.io/pypi/l/modbus-proxy.svg
