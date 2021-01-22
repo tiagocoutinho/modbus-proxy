@@ -39,7 +39,10 @@ async def run(surl, mburl):
 @click.option("--modbus", type=urlparse, required=True)
 def main(server, modbus):
     """Console script for modbus-proxy."""
-    asyncio.run(run(server, modbus))
+    try:
+        asyncio.run(run(server, modbus))
+    except KeyboardInterrupt:
+        print("Ctrl-C pressed. Bailing out!")
 
 
 if __name__ == "__main__":
