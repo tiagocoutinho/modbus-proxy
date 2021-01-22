@@ -65,6 +65,32 @@ $ python examples/simple_tcp_client.py -a 0:9000
 holding registers: [1, 2, 3, 4]
 ```
 
+## Docker
+
+This project ships with a basic [Dockerfile](./Dockerfile) which you can use
+as a base to launch modbus-proxy inside a docker container.
+
+First, build the docker image with:
+
+```console
+$ docker build -t img-modbus-proxy .
+```
+
+To run the container you need to set two variables:
+
+* *MODBUS_ADDRESS* - the address of your modbus device (ex: `tcp://plc.acme.org:502`)
+* *MODBUS_BIND* - which TCP address your server will bind to *inside docker* (ex: `tcp://0:502`)
+
+Also you need to expose the MODBUS_BIND port.
+
+Here is a minimum example:
+
+```
+$ docker run -d -p 5020:502 -e MODBUS_BIND=tcp://0:502 -e MODBUS_ADDRESS=tcp://plc.acme.org:502 img-modbus-proxy
+```
+
+Should be able to access your modbus device through the modbus-proxy by connecting your client(s) to `<your-hostname/ip>:5020`
+
 ## Credits
 
 ### Development Lead
