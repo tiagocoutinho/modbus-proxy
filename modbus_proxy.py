@@ -1,8 +1,7 @@
 import asyncio
 import logging
+import argparse
 from urllib.parse import urlparse
-
-import click
 
 
 __version__ = "0.1.1"
@@ -120,24 +119,31 @@ async def run(server_url, modbus_url, timeout):
             await server.serve_forever()
 
 
-@click.command()
-@click.option("-b", "--bind", "server", type=urlparse, default="tcp://0:5020")
-@click.option("--modbus", type=urlparse, required=True)
-@click.option("--timeout", type=float, default=None)
-@click.option(
-    "--log-level",
-    type=click.Choice(['debug', 'info', 'warning', 'error'], case_sensitive=False),
-    default='info'
-)
-def main(server, modbus, log_level, timeout):
-    """Console script for modbus-proxy."""
+def main():
+    parser = argparse.ArgumentParser(description="ModBus proxy")
+    parser.add_argument(
+        "-b", "--bind", type=urlparse, default="tcp://0:5020",
+        help="listen address (ex: tcp://0:502)"
+    )
+    parser.add_argument("--modbus", type=urlparse,
+        help="modbus device address (ex: tcp://plc.acme.org:502)"
+    )
+    parser.add_argument("--timeout", type=float, default=None,
+        help="modbus connection and request timeout (s)"
+    )
+    parser.add_argument("--log-level", default='INFO',
+        choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'],
+        help="modbus connection and request timeout (s)"
+    )
+    args = parser.parse_args()
+
     logging.basicConfig(
         format="%(asctime)s:%(levelname)7s:%(name)s:%(message)s",
-        level=log_level.upper()
+        level=args.log_level.upper()
     )
     log.info("Starting...")
     try:
-        asyncio.run(run(server, modbus, timeout))
+        asyncio.run(run(args.bind, args.modbus, args.timeout))
     except KeyboardInterrupt:
         print("Ctrl-C pressed. Bailing out!")
 

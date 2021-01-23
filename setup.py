@@ -10,16 +10,11 @@
 
 from setuptools import setup
 
-
 with open('README.md') as readme_file:
     readme = readme_file.read()
 
 with open('HISTORY.md') as history_file:
     history = history_file.read()
-
-requirements = [
-    'click>=7.0',
-]
 
 setup_requirements = ['pytest-runner', ]
 
@@ -45,7 +40,6 @@ setup(
             'modbus-proxy=modbus_proxy:main',
         ],
     },
-    install_requires=requirements,
     license="GNU General Public License v3",
     long_description=readme + '\n\n' + history,
     long_description_content_type="text/markdown",
