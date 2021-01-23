@@ -9,6 +9,5 @@ Sphinx==1.8.5
 recommonmark==0.6.0
 twine==1.14.0
 click==7.0
-aiostream==0.4.1
 pytest==4.6.5
 pytest-runner==5.1

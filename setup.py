@@ -18,7 +18,6 @@ with open('HISTORY.md') as history_file:
     history = history_file.read()
 
 requirements = [
-    "aiostream",
     'click>=7.0',
 ]
 
