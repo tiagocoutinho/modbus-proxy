@@ -1,2 +1,0 @@
-click==7.1.2
-aiostream==0.4.1
