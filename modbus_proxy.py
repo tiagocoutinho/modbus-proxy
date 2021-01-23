@@ -3,9 +3,7 @@ import logging
 import argparse
 from urllib.parse import urlparse
 
-
 __version__ = "0.1.1"
-
 
 log = logging.getLogger("modbus-proxy")
 

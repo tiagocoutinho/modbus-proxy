@@ -25,8 +25,10 @@ setup(
     author_email='coutinhotiago@gmail.com',
     python_requires='>=3.7',
     classifiers=[
-        'Development Status :: 2 - Pre-Alpha',
+        'Development Status :: 4 - Beta',
         'Intended Audience :: Developers',
+        'Intended Audience :: Manufacturing',
+        'Intended Audience :: Science/Research',
         'License :: OSI Approved :: GNU General Public License v3 (GPLv3)',
         'Natural Language :: English',
         'Programming Language :: Python :: 3',
