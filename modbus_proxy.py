@@ -15,8 +15,8 @@ class ConnectionClosedError(ConnectionError):
 class Connection:
 
     def __init__(self, reader, writer):
-        self._reader = reader
-        self._writer = writer
+        self.reader = reader
+        self.writer = writer
 
     async def __aenter__(self):
         return self
@@ -26,95 +26,105 @@ class Connection:
 
     @property
     def opened(self):
-        return self._writer is not None and not self._writer.is_closing() and not self._reader.at_eof()
+        return self.writer is not None and not self.writer.is_closing() and not self.reader.at_eof()
 
     async def close(self):
-        if self._writer is not None:
-            self._writer.close()
-            await self._writer.wait_closed()
-            self._reader = None
-            self._writer = None
+        if self.writer is not None:
+            self.writer.close()
+            await self.writer.wait_closed()
+            self.reader = None
+            self.writer = None
+
+    async def write(self, data):
+        self.writer.write(data)
+        await self.writer.drain()
+
+    async def read(self):
+        # TODO: make sure packet is complete
+        reply = await self.reader.read(8192)
+        if not reply:
+            raise ConnectionClosedError("disconnected")
+        return reply
 
 
 class ModBus(Connection):
 
     def __init__(self, host, port):
-        self._host = host
-        self._port = port
-        self._lock = asyncio.Lock()
-        self._log = log.getChild(f"modbus({host}:{port})")
+        self.host = host
+        self.port = port
+        self.log = log.getChild(f"ModBus({host}:{port})")
         super().__init__(None, None)
 
     async def open(self):
         await self.close()
-        self._log.info("connecting to modbus at %s...", (self._host, self._port))
-        self._reader, self._writer = \
-            await asyncio.open_connection(self._host, self._port)
-        self._log.info("connected!")
-
-    async def write(self, request):
-        self._writer.write(request)
-        await self._writer.drain()
-
-    async def read(self):
-        # TODO: make sure packet is complete
-        reply = await self._reader.read(8192)
-        if not reply:
-            raise ConnectionClosedError("Modbus disconnected")
-        return reply
-
-    async def write_read(self, request):
-        async with self._lock:
-            await self.write(request)
-            return await self.read()
+        self.log.info("connecting to modbus at %s...", (self.host, self.port))
+        self.reader, self.writer = \
+            await asyncio.open_connection(self.host, self.port)
+        self.log.info("connected!")
 
 
 class Client(Connection):
 
-    async def read(self):
-        # TODO: make sure packet is complete
-        request = await self._reader.read(8192)
-        if not request:
-            raise ConnectionClosedError("Client disconnected")
-        return request
+    def __init__(self, reader, writer):
+        super().__init__(reader, writer)
+        peer = writer.get_extra_info("peername")
+        self.log = log.getChild(f'Client({peer[0]}:{peer[1]})')
 
-    async def write(self, reply):
-        self._writer.write(reply)
-        await self._writer.drain()
+
+class Server:
+
+    def __init__(self, host, port, modbus, timeout=None):
+        self.host = host
+        self.port = port
+        self.modbus = modbus
+        self.timeout = timeout
+        self.lock = asyncio.Lock()
+
+    async def ensure_modbus_connection(self):
+        async with self.lock:
+            if not self.modbus.opened:
+                await asyncio.wait_for(self.modbus.open(), self.timeout)
+
+    async def modbus_write_read(self, data):
+        async with self.lock:
+            return await asyncio.wait_for(
+                self._modbus_write_read(data), self.timeout
+            )
+
+    async def _modbus_write_read(self, data):
+        await self.modbus.write(data)
+        return await self.modbus.read()
+
+    async def handle_client(self, reader, writer):
+        async with Client(reader, writer) as client:
+            log = client.log
+            log.info('new connection')
+            try:
+                while True:
+                    await self.ensure_modbus_connection()
+                    request = await client.read()
+                    await self.ensure_modbus_connection()
+                    log.debug("processing client to modbus")
+                    reply = await self.modbus_write_read(request)
+                    log.debug("processing reply from modbus to client")
+                    await client.write(reply)
+            except ConnectionClosedError as closed:
+                log.info("%r", closed)
+            except Exception as error:
+                log.error("%r", error)
+
+    async def serve_forever(self):
+        server = await asyncio.start_server(
+            self.handle_client, self.host, self.port
+        )
+        async with server:
+            await server.serve_forever()
 
 
 async def run(server_url, modbus_url, timeout):
-
-    async def handle_client(reader, writer):
-        peer = writer.get_extra_info("peername")
-        clog = log.getChild(f'Client({peer[0]}:{peer[1]})')
-        clog.info("new connection")
-        async with Client(reader, writer) as client:
-            try:
-                while True:
-                    if not modbus.opened:
-                        await asyncio.wait_for(modbus.open(), timeout)
-                    request = await client.read()
-                    if not modbus.opened:
-                        await asyncio.wait_for(modbus.open(), timeout)
-                    clog.debug("processing client to modbus")
-                    reply = await asyncio.wait_for(
-                        modbus.write_read(request), timeout
-                    )
-                    clog.debug("processing reply from modbus to client")
-                    await client.write(reply)
-            except ConnectionClosedError as closed:
-                clog.info("%r", closed)
-            except Exception as error:
-                clog.error("%r", error)
-
     async with ModBus(modbus_url.hostname, modbus_url.port) as modbus:
-        server = await asyncio.start_server(
-            handle_client, server_url.hostname, server_url.port
-        )
-        async with server:
-            log.info("Ready!")
-            await server.serve_forever()
+        server = Server(server_url.hostname, server_url.port, modbus, timeout)
+        await server.serve_forever()
 
 
 def main():
