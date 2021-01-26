@@ -1,11 +1,32 @@
 import asyncio
-import logging
+import pathlib
 import argparse
+import logging.config
 from urllib.parse import urlparse
 
 __version__ = "0.3.0"
 
-log = logging.getLogger("modbus-proxy")
+
+DEFAULT_LOG_CONFIG = {
+    "version": 1,
+    "formatters": {
+        "standard": {
+            "format": "%(asctime)s %(levelname)8s %(name)s: %(message)s"
+        }
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "standard",
+        }
+    },
+    "root": {
+        "handlers": ['console'],
+        "level": "INFO"
+    }
+}
+
+log = None
 
 
 class Connection:
@@ -145,6 +166,34 @@ async def run(server_url, modbus_url, timeout):
         await modbus.serve_forever()
 
 
+def load_log_config(file_name):
+    global log
+    if not file_name:
+        logging.config.dictConfig(DEFAULT_LOG_CONFIG)
+        return
+    file_name = pathlib.Path(file_name)
+    ext = file_name.suffix
+    if ext.endswith('toml'):
+        from toml import load
+    elif ext.endswith('yml') or ext.endswith('yaml'):
+        import yaml
+        def load(fobj):
+            return yaml.load(fobj, Loader=yaml.Loader)
+    elif ext.endswith('json'):
+        from json import load
+    elif ext.endswith('ini') or ext.endswith('conf'):
+        logging.config.fileConfig(file_name, disable_existing_loggers=False)
+        return
+    else:
+        raise NotImplementedError
+    with open(file_name) as fobj:
+        obj = load(fobj)
+    obj.setdefault("version", 1)
+    obj.setdefault("disable_existing_loggers", False)
+    logging.config.dictConfig(obj)
+    log = logging.getLogger("modbus-proxy")
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="ModBus proxy",
@@ -160,21 +209,18 @@ def main():
     parser.add_argument("--timeout", type=float, default=10,
         help="modbus connection and request timeout in seconds"
     )
-    parser.add_argument("--log-level", default="INFO",
-        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
-        help="modbus connection and request timeout (s)"
+    parser.add_argument("--log-config-file", default=None, type=str,
+        help="log configuration file. By default log to stderr with log level = INFO"
     )
     args = parser.parse_args()
-
-    logging.basicConfig(
-        format="%(asctime)s:%(levelname)7s:%(name)s:%(message)s",
-        level=args.log_level.upper()
-    )
+    load_log_config(args.log_config_file)
+    global log
+    log = logging.getLogger("modbus-proxy")
     log.info("Starting...")
     try:
         asyncio.run(run(args.bind, args.modbus, args.timeout))
     except KeyboardInterrupt:
-        print("Ctrl-C pressed. Bailing out!")
+        log.warning("Ctrl-C pressed. Bailing out!")
 
 
 if __name__ == "__main__":

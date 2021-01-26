@@ -20,6 +20,11 @@ setup_requirements = ['pytest-runner', ]
 
 test_requirements = ['pytest>=3', ]
 
+extras_require = {
+    "yaml": ["PyYAML"],
+    "toml": ["toml"],
+}
+
 setup(
     author="Tiago Coutinho",
     author_email='coutinhotiago@gmail.com',
@@ -49,6 +54,7 @@ setup(
     keywords='modbus, tcp, proxy',
     name='modbus-proxy',
     py_modules=['modbus_proxy'],
+    extras_require=extras_require,
     setup_requires=setup_requirements,
     test_suite='tests',
     tests_require=test_requirements,

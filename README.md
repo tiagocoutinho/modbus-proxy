@@ -20,6 +20,10 @@ From within your favorite python 3 environment type:
 Note: On some systems `pip` points to a python 2 installation.
 You might need to use `pip3` command instead.
 
+Additionally, if you want logging configuration:
+* YAML: `pip install modbus-proxy[yaml]` (see below)
+* TOML: `pip install modbus-proxy[toml]` (see below)
+
 ## Running the server
 
 ```console
@@ -83,6 +87,8 @@ To run the container you need to set two variables:
 
 Also you need to expose the MODBUS_BIND port.
 
+Optionally, you can set *MODBUS_LOG* to `log.conf`, `log-verbose.conf`.
+
 Here is a minimum example:
 
 ```
@@ -90,6 +96,77 @@ $ docker run -d -p 5020:502 -e MODBUS_BIND=tcp://0:502 -e MODBUS_ADDRESS=tcp://p
 ```
 
 Should be able to access your modbus device through the modbus-proxy by connecting your client(s) to `<your-hostname/ip>:5020`
+
+## Advanced configuration
+
+#### `--timeout=<time in secs>`
+
+Defines modbus timeout for establishing a connection and for making REQ/REP. Time is given in seconds (or fractions of). Defaults to 10s.
+
+#### `--log-config-file`
+
+Logging configuration file.
+
+If a relative path is given, it is relative to the current working directory.
+
+
+If a `.conf` or `.ini` file is given, it is passed directly to
+[logging.config.fileConfig()](https://docs.python.org/library/logging.config.html#logging.config.fileConfig) so the file contents must
+obey the
+[Configuration file format](https://docs.python.org/library/logging.config.html#configuration-file-format).
+
+A simple logging configuration (also available at [log.conf](./log.conf))
+which mimics the default configuration looks like this:
+
+```toml
+[formatters]
+keys=standard
+
+[handlers]
+keys=console
+
+[loggers]
+keys=root
+
+[formatter_standard]
+format=%(asctime)s %(levelname)8s %(name)s: %(message)s
+
+[handler_console]
+class=StreamHandler
+formatter=standard
+
+[logger_root]
+level=INFO
+handlers=console
+```
+
+A more verbose example logging with a rotating file handler:
+[log-verbose.conf](./log-verbose.conf)
+
+
+If a `.yml`, `.yaml`, or `.toml` file is given, it is parsed as a YAML or TOML
+file respectively. The result is then passed to
+[logging.config.dictConfig()](https://docs.python.org/library/logging.config.html#logging.config.dictConfig) so the file contents
+must obey the
+[Configuration dictionary schema](https://docs.python.org/library/logging.config.html#configuration-dictionary-schema).
+
+The same example above (also available at [log.yml](./log.yml)) can be achieved in YAML with:
+
+```yaml
+version: 1
+formatters:
+  standard:
+    format: "%(asctime)s %(levelname)8s %(name)s: %(message)s"
+handlers:
+  console:
+    class: logging.StreamHandler
+    formatter: standard
+root:
+  handlers: ['console']
+  level: DEBUG
+```
+
+
 
 ## Credits
 
