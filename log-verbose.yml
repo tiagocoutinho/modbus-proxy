@@ -1,0 +1,19 @@
+version: 1
+formatters:
+  standard:
+    format: "%(asctime)s %(levelname)8s %(name)s: %(message)s"
+handlers:
+  console:
+    class: logging.StreamHandler
+    formatter: standard
+    level: INFO
+  file:
+    class: logging.handlers.RotatingFileHandler
+    formatter: standard
+    filename: modbus-proxy.log
+    maxBytes: 10000000
+    backupCount: 10
+    level: DEBUG
+root:
+  handlers: ['console', 'file']
+  level: NOTSET
