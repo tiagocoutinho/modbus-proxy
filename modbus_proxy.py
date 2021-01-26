@@ -4,7 +4,7 @@ import argparse
 import logging.config
 from urllib.parse import urlparse
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 
 DEFAULT_LOG_CONFIG = {
