@@ -108,13 +108,14 @@ class Client(Connection):
 
 class ModBus(Connection):
 
-    def __init__(self, host, port, modbus_host, modbus_port, timeout=None):
+    def __init__(self, host, port, modbus_host, modbus_port, timeout=None, connection_time=0.1):
         super().__init__(f"ModBus({modbus_host}:{modbus_port})", None, None)
         self.host = host
         self.port = port
         self.modbus_host = modbus_host
         self.modbus_port = modbus_port
         self.timeout = timeout
+        self.connection_time = connection_time
         self.lock = asyncio.Lock()
 
     async def open(self):
@@ -129,6 +130,8 @@ class ModBus(Connection):
                 try:
                     if not self.opened:
                         await asyncio.wait_for(self.open(), self.timeout)
+                        if self.connection_time > 0:
+                            await asyncio.sleep(self.connection_time)
                     coro = self._write_read(data)
                     return await asyncio.wait_for(coro, self.timeout)
                 except Exception as error:
@@ -161,8 +164,13 @@ class ModBus(Connection):
             await server.serve_forever()
 
 
-async def run(server_url, modbus_url, timeout):
-    async with ModBus(server_url.hostname, server_url.port, modbus_url.hostname, modbus_url.port, timeout) as modbus:
+async def run(server_url, modbus_url, timeout, connection_time):
+    async with ModBus(server_url.hostname,
+                      server_url.port,
+                      modbus_url.hostname,
+                      modbus_url.port,
+                      timeout,
+                      connection_time) as modbus:
         await modbus.serve_forever()
 
 
@@ -206,6 +214,9 @@ def main():
     parser.add_argument("--modbus", type=urlparse,
         help="modbus device address (ex: tcp://plc.acme.org:502)"
     )
+    parser.add_argument("--modbus-connection-time", type=float, default=0.1,
+        help="delay after establishing connection with modbus before first request"
+    )
     parser.add_argument("--timeout", type=float, default=10,
         help="modbus connection and request timeout in seconds"
     )
@@ -218,7 +229,7 @@ def main():
     log = logging.getLogger("modbus-proxy")
     log.info("Starting...")
     try:
-        asyncio.run(run(args.bind, args.modbus, args.timeout))
+        asyncio.run(run(args.bind, args.modbus, args.timeout, args.modbus_connection_time))
     except KeyboardInterrupt:
         log.warning("Ctrl-C pressed. Bailing out!")
 
