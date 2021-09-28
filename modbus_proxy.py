@@ -133,7 +133,7 @@ class ModBus(Connection):
         url = modbus["url"]
         super().__init__(f"ModBus({url.hostname}:{url.port})", None, None)
         self.host = bind.hostname
-        self.port = bind.port or 502
+        self.port = 502 if bind.port is None else bind.port
         self.modbus_host = url.hostname
         self.modbus_port = url.port
         self.timeout = modbus.get("timeout", None)
