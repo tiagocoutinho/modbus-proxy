@@ -231,7 +231,7 @@ async def run(args):
     log.info("Starting...")
     devices = config.get("devices", [])
     if args.modbus:
-        listen = {"bind": "tcp://0:5020" if args.bind is None else args.bind}
+        listen = {"bind": ":502" if args.bind is None else args.bind}
         devices.append({
             "modbus": {
                 "url": args.modbus,
