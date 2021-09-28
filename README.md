@@ -89,13 +89,13 @@ with `pip install umodbus`).
 
 Start the `simple_tcp_server.py` (this will simulate an actual modbus hardware):
 
-```console
+```bash
 $ python examples/simple_tcp_server.py -b :5020
 ```
 
 You can run the example client just to be sure direct communication works:
 
-```console
+```bash
 $ python examples/simple_tcp_client.py -a 0:5020
 holding registers: [1, 2, 3, 4]
 ```
@@ -104,14 +104,14 @@ Now for the real test:
 
 Start a modbus-proxy bridge server with:
 
-```console
+```bash
 $ modbus-proxy -b tcp://:9000 --modbus tcp://:5020
 ```
 
 Finally run a the example client but now address the proxy instead of the server
-(notice we are now using port *9000* and not *5020):
+(notice we are now using port *9000* and not *5020*):
 
-```console
+```bash
 $ python examples/simple_tcp_client.py -a 0:9000
 holding registers: [1, 2, 3, 4]
 ```
@@ -123,26 +123,42 @@ as a base to launch modbus-proxy inside a docker container.
 
 First, build the docker image with:
 
-```console
-$ docker build -t img-modbus-proxy .
+```bash
+$ docker build -t modbus-proxy .
 ```
 
-To run the container you need to set two variables:
+To bridge a single modbus device without needing a configuration file is
+straight forward:
 
-* *MODBUS_ADDRESS* - the address of your modbus device (ex: `tcp://plc.acme.org:502`)
-* *MODBUS_BIND* - which TCP address your server will bind to *inside docker* (ex: `tcp://0:502`)
-
-Also you need to expose the MODBUS_BIND port.
-
-Optionally, you can set *MODBUS_LOG* to `log.conf`, `log-verbose.conf`.
-
-Here is a minimum example:
-
-```
-$ docker run -d -p 5020:502 -e MODBUS_BIND=tcp://0:502 -e MODBUS_ADDRESS=tcp://plc.acme.org:502 img-modbus-proxy
+```bash
+$ docker run -d -p 5020:502 modbus-proxy -b tcp://0:502 --modbus tcp://plc1.acme.org:502
 ```
 
-Should be able to access your modbus device through the modbus-proxy by connecting your client(s) to `<your-hostname/ip>:5020`
+Now you should be able to access your modbus device through the modbus-proxy by
+connecting your client(s) to `<your-hostname/ip>:5020`.
+
+If, instead, you want to use a configuration file, you must mount the file so
+it is visible by the container.
+
+Assuming you have prepared a `conf.yml` in the current directory:
+
+```yaml
+devices:
+- modbus:
+    url: plc1.acme.org:502
+  listen:
+    bind: 0:502
+```
+
+Here is an example of how to run the container:
+
+```bash
+docker run -p 5020:502 -v $PWD/conf.yml:/src/conf.yml modbus-proxy -c /src/conf.yml
+```
+
+Note that for each modbus device you add in the configuration file you need
+to publish the corresponding bind port on the host
+(`-p <host port>:<container port>` argument).
 
 ## Logging configuration
 
