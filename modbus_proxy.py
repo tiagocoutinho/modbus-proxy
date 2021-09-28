@@ -139,7 +139,17 @@ class ModBus(Connection):
         self.modbus_port = url.port
         self.timeout = modbus.get("timeout", None)
         self.connection_time = modbus.get("connection_time", 0)
+        self.server = None
         self.lock = asyncio.Lock()
+
+    async def close(self):
+        await self.stop()
+        await super().close()
+
+    @property
+    def address(self):
+        if self.server is not None:
+            return self.server.sockets[0].getsockname()
 
     async def open(self):
         self.log.info("connecting to modbus...")
@@ -182,14 +192,22 @@ class ModBus(Connection):
                 if not result:
                     return
 
+    async def start(self):
+        self.server = await asyncio.start_server(
+            self.handle_client, self.host, self.port, start_serving=True
+        )
+
+    async def stop(self):
+        if self.server is not None:
+            self.server.close()
+            await self.server.wait_closed()
+
     async def serve_forever(self):
-        async with self:
-            server = await asyncio.start_server(
-                self.handle_client, self.host, self.port
-            )
-            async with server:
-                self.log.info("Ready to accept requests on %s:%d", self.host, self.port)
-                await server.serve_forever()
+        if self.server is None:
+            await self.start()
+        async with self.server:
+            self.log.info("Ready to accept requests on %s:%d", self.host, self.port)
+            await self.server.serve_forever()
 
 
 def load_config(file_name):
@@ -232,30 +250,7 @@ def prepare_log(config, log_config_file=None):
     return log
 
 
-async def run(args):
-    if args.config_file is None:
-        assert args.modbus
-    config = load_config(args.config_file) if args.config_file else {}
-    prepare_log(config, args.log_config_file)
-    log.info("Starting...")
-    devices = config.get("devices", [])
-    if args.modbus:
-        listen = {"bind": ":502" if args.bind is None else args.bind}
-        devices.append({
-            "modbus": {
-                "url": args.modbus,
-                "timeout": args.timeout,
-                "connection_time": args.modbus_connection_time
-            },
-            "listen": listen
-        })
-    async with contextlib.AsyncExitStack() as stack:
-        servers = [await stack.enter_async_context(ModBus(cfg)) for cfg in devices]
-        coros = [server.serve_forever() for server in servers]
-        await asyncio.gather(*coros)
-
-
-def main():
+def parse_args(args=None):
     parser = argparse.ArgumentParser(
         description="ModBus proxy",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
@@ -278,9 +273,59 @@ def main():
     parser.add_argument("--log-config-file", default=None, type=str,
         help="log configuration file. By default log to stderr with log level = INFO"
     )
-    args = parser.parse_args()
+    return parser.parse_args(args=args)
+
+
+def create_config(args):
+    if args.config_file is None:
+        assert args.modbus
+    config = load_config(args.config_file) if args.config_file else {}
+    prepare_log(config, args.log_config_file)
+    log.info("Starting...")
+    devices = config.setdefault("devices", [])
+    if args.modbus:
+        listen = {"bind": ":502" if args.bind is None else args.bind}
+        devices.append({
+            "modbus": {
+                "url": args.modbus,
+                "timeout": args.timeout,
+                "connection_time": args.modbus_connection_time
+            },
+            "listen": listen
+        })
+    return config
+
+
+def create_bridges(config):
+    return [ModBus(cfg) for cfg in config["devices"]]
+
+
+async def start_bridges(bridges):
+    coros = [bridge.start() for bridge in bridges]
+    await asyncio.gather(*coros)
+
+
+async def run_bridges(bridges, ready=None):
+    async with contextlib.AsyncExitStack() as stack:
+        coros = [stack.enter_async_context(bridge) for bridge in bridges]
+        await asyncio.gather(*coros)
+        await start_bridges(bridges)
+        if ready is not None:
+            ready.set(bridges)
+        coros = [bridge.serve_forever() for bridge in bridges]
+        await asyncio.gather(*coros)
+
+
+async def run(args=None, ready=None):
+    args = parse_args(args)
+    config = create_config(args)
+    bridges = create_bridges(config)
+    await run_bridges(bridges, ready=ready)
+
+
+def main():
     try:
-        asyncio.run(run(args))
+        asyncio.run(run())
     except KeyboardInterrupt:
         log.warning("Ctrl-C pressed. Bailing out!")
 
