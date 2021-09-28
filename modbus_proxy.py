@@ -1,6 +1,8 @@
 import asyncio
 import pathlib
 import argparse
+import warnings
+import contextlib
 import logging.config
 from urllib.parse import urlparse
 
@@ -26,7 +28,17 @@ DEFAULT_LOG_CONFIG = {
     }
 }
 
-log = None
+log = logging.getLogger("modbus-proxy")
+
+
+def parse_url(url):
+    if "://" not in url:
+        url = f"tcp://{url}"
+    result = urlparse(url)
+    if not result.hostname:
+        url = result.geturl().replace("://", "://0")
+        result = urlparse(url)
+    return result
 
 
 class Connection:
@@ -108,14 +120,16 @@ class Client(Connection):
 
 class ModBus(Connection):
 
-    def __init__(self, host, port, modbus_host, modbus_port, timeout=None, connection_time=0.1):
-        super().__init__(f"ModBus({modbus_host}:{modbus_port})", None, None)
-        self.host = host
-        self.port = port
-        self.modbus_host = modbus_host
-        self.modbus_port = modbus_port
-        self.timeout = timeout
-        self.connection_time = connection_time
+    def __init__(self, config):
+        modbus, bind = config["modbus"], config["listen"]["bind"]
+        url = modbus["url"]
+        super().__init__(f"ModBus({url.hostname}:{url.port})", None, None)
+        self.host = bind.hostname
+        self.port = bind.port or 502
+        self.modbus_host = url.hostname
+        self.modbus_port = url.port
+        self.timeout = modbus.get("timeout", None)
+        self.connection_time = modbus.get("connection_time", 0)
         self.lock = asyncio.Lock()
 
     async def open(self):
@@ -124,14 +138,18 @@ class ModBus(Connection):
             await asyncio.open_connection(self.modbus_host, self.modbus_port)
         self.log.info("connected!")
 
+    async def connect(self):
+        if not self.opened:
+            await asyncio.wait_for(self.open(), self.timeout)
+            if self.connection_time > 0:
+                self.log.info("delay after connect: %s", self.connection_time)
+                await asyncio.sleep(self.connection_time)
+
     async def write_read(self, data, attempts=2):
         async with self.lock:
             for i in range(attempts):
                 try:
-                    if not self.opened:
-                        await asyncio.wait_for(self.open(), self.timeout)
-                        if self.connection_time > 0:
-                            await asyncio.sleep(self.connection_time)
+                    await self.connect()
                     coro = self._write_read(data)
                     return await asyncio.wait_for(coro, self.timeout)
                 except Exception as error:
@@ -156,29 +174,16 @@ class ModBus(Connection):
                     return
 
     async def serve_forever(self):
-        server = await asyncio.start_server(
-            self.handle_client, self.host, self.port
-        )
-        async with server:
-            self.log.info("Ready to accept requests on %s:%d", self.host, self.port)
-            await server.serve_forever()
+        async with self:
+            server = await asyncio.start_server(
+                self.handle_client, self.host, self.port
+            )
+            async with server:
+                self.log.info("Ready to accept requests on %s:%d", self.host, self.port)
+                await server.serve_forever()
 
 
-async def run(server_url, modbus_url, timeout, connection_time):
-    async with ModBus(server_url.hostname,
-                      server_url.port,
-                      modbus_url.hostname,
-                      modbus_url.port,
-                      timeout,
-                      connection_time) as modbus:
-        await modbus.serve_forever()
-
-
-def load_log_config(file_name):
-    global log
-    if not file_name:
-        logging.config.dictConfig(DEFAULT_LOG_CONFIG)
-        return
+def load_config(file_name):
     file_name = pathlib.Path(file_name)
     ext = file_name.suffix
     if ext.endswith('toml'):
@@ -189,17 +194,61 @@ def load_log_config(file_name):
             return yaml.load(fobj, Loader=yaml.Loader)
     elif ext.endswith('json'):
         from json import load
-    elif ext.endswith('ini') or ext.endswith('conf'):
-        logging.config.fileConfig(file_name, disable_existing_loggers=False)
-        return
     else:
         raise NotImplementedError
     with open(file_name) as fobj:
-        obj = load(fobj)
-    obj.setdefault("version", 1)
-    obj.setdefault("disable_existing_loggers", False)
-    logging.config.dictConfig(obj)
-    log = logging.getLogger("modbus-proxy")
+        return load(fobj)
+
+
+def prepare_log(config, log_config_file=None):
+    cfg = config.get("logging")
+    if not cfg:
+        if log_config_file:
+            if log_config_file.endswith('ini') or log_config_file.endswith('conf'):
+                logging.config.fileConfig(log_config_file, disable_existing_loggers=False)
+            else:
+                cfg = load_config(log_config_file)
+        else:
+            cfg = DEFAULT_LOG_CONFIG
+    if cfg:
+        cfg.setdefault("version", 1)
+        cfg.setdefault("disable_existing_loggers", False)
+        logging.config.dictConfig(cfg)
+    warnings.simplefilter('always', DeprecationWarning)
+    logging.captureWarnings(True)
+    if log_config_file:
+        warnings.warn("log-config-file deprecated. Use config-file instead", DeprecationWarning)
+        if "logging" in config:
+            log.warning("log-config-file ignored. Using config file logging")
+    return log
+
+
+async def run(args):
+    if args.config_file is None:
+        assert args.modbus
+    config = load_config(args.config_file) if args.config_file else {}
+    prepare_log(config, args.log_config_file)
+    log.info("Starting...")
+    devices = config.get("devices", [])
+    if args.modbus:
+        listen = {"bind": "tcp://0:5020" if args.bind is None else args.bind}
+        devices.append({
+            "modbus": {
+                "url": args.modbus,
+                "timeout": args.timeout,
+                "connection_time": args.modbus_connection_time
+            },
+            "listen": listen
+        })
+    # transport url strings in Url objects
+    for device in devices:
+        modbus, listen = device["modbus"], device["listen"]
+        modbus["url"] = parse_url(modbus["url"])
+        listen["bind"] = parse_url(listen["bind"])
+    async with contextlib.AsyncExitStack() as stack:
+        servers = [await stack.enter_async_context(ModBus(cfg)) for cfg in devices]
+        coros = [server.serve_forever() for server in servers]
+        await asyncio.gather(*coros)
 
 
 def main():
@@ -208,10 +257,12 @@ def main():
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
     parser.add_argument(
-        "-b", "--bind", type=urlparse, default="tcp://0:5020",
-        help="listen address"
+        "-c", "--config-file", default=None, type=str, help="config file"
     )
-    parser.add_argument("--modbus", type=urlparse,
+    parser.add_argument(
+        "-b", "--bind", default=None, type=str, help="listen address"
+    )
+    parser.add_argument("--modbus", default=None, type=str,
         help="modbus device address (ex: tcp://plc.acme.org:502)"
     )
     parser.add_argument("--modbus-connection-time", type=float, default=0.1,
@@ -224,12 +275,8 @@ def main():
         help="log configuration file. By default log to stderr with log level = INFO"
     )
     args = parser.parse_args()
-    load_log_config(args.log_config_file)
-    global log
-    log = logging.getLogger("modbus-proxy")
-    log.info("Starting...")
     try:
-        asyncio.run(run(args.bind, args.modbus, args.timeout, args.modbus_connection_time))
+        asyncio.run(run(args))
     except KeyboardInterrupt:
         log.warning("Ctrl-C pressed. Bailing out!")
 

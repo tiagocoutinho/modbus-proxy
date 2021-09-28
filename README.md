@@ -26,13 +26,60 @@ Additionally, if you want logging configuration:
 
 ## Running the server
 
-```console
-$ modbus-proxy -b tcp://0:9000 --modbus tcp://plc1.acme.org:502
+First, you will need write a configuration file where you specify for each modbus device you which to control:
+
+* modbus connection (the modbus device url)
+* listen interface (to which url your clients should connect)
+
+Configuration files can be written in YAML (*.yml* or *.yaml*) or TOML (*.toml*).
+
+Suppose you have a PLC modbus device listening on *plc1.acme.org:502* and you want your clients to
+connect to your machine on port 9000. A YAML configuration would look like this:
+
+```yaml
+devices:
+- modbus:
+    url: plc1.acme.org:502     # device url (mandatory)
+    timeout: 10                # communication timeout (s) (optional, default: 10)
+    connection_time: 0.1       # delay after connection (s) (optional, default: 0)
+  listen:
+    bind: 0:9000               # listening address (mandatory)
+```
+
+Assuming you saved this file as `modbus-config.yml`, start the server with:
+
+```bash
+$ modbus-proxy -c ./modbus-config.yml
 ```
 
 Now, instead of connecting your client(s) to `plc1.acme.org:502` you just need to
 tell them to connect to `*machine*:9000` (where *machine* is the host where
 modbus-proxy is running).
+
+Note that the server is capable of handling multiple modbus devices. Here is a
+configuration example for 2 devices:
+
+```yaml
+devices:
+- modbus:
+    url: plc1.acme.org:502
+  listen:
+    bind: 0:9000
+- modbus:
+    url: plc2.acme.org:502
+  listen:
+    bind: 0:9001
+```
+
+If you have a *single* modbus device, you can avoid writting a configuration file by
+providing all arguments in the command line:
+
+```bash
+modbus-proxy -b tcp://0:9000 --modbus tcp://plc1.acme.org:502
+```
+
+(hint: run `modbus-proxy --help` to see all available options)
+
 
 ## Running the examples
 
@@ -97,18 +144,42 @@ $ docker run -d -p 5020:502 -e MODBUS_BIND=tcp://0:502 -e MODBUS_ADDRESS=tcp://p
 
 Should be able to access your modbus device through the modbus-proxy by connecting your client(s) to `<your-hostname/ip>:5020`
 
-## Advanced configuration
+## Logging configuration
 
-#### `--timeout=<time in secs>`
+Logging configuration can be added to the configuration file by adding a new `logging` keyword.
 
-Defines modbus timeout for establishing a connection and for making REQ/REP. Time is given in seconds (or fractions of). Defaults to 10s.
+The logging configuration will be passed to
+[logging.config.dictConfig()](https://docs.python.org/library/logging.config.html#logging.config.dictConfig)
+so the file contents must obey the
+[Configuration dictionary schema](https://docs.python.org/library/logging.config.html#configuration-dictionary-schema).
 
-#### `--log-config-file`
+Here is a YAML example:
+
+```yaml
+devices:
+- modbus:
+    url: plc1.acme.org:502
+  listen:
+    bind: 0:9000
+logging:
+  version: 1
+  formatters:
+    standard:
+      format: "%(asctime)s %(levelname)8s %(name)s: %(message)s"
+  handlers:
+    console:
+      class: logging.StreamHandler
+      formatter: standard
+  root:
+    handlers: ['console']
+    level: DEBUG
+```
+
+### `--log-config-file` (deprecated)
 
 Logging configuration file.
 
 If a relative path is given, it is relative to the current working directory.
-
 
 If a `.conf` or `.ini` file is given, it is passed directly to
 [logging.config.fileConfig()](https://docs.python.org/library/logging.config.html#logging.config.fileConfig) so the file contents must
@@ -143,13 +214,6 @@ handlers=console
 A more verbose example logging with a rotating file handler:
 [log-verbose.conf](./log-verbose.conf)
 
-
-If a `.yml`, `.yaml`, or `.toml` file is given, it is parsed as a YAML or TOML
-file respectively. The result is then passed to
-[logging.config.dictConfig()](https://docs.python.org/library/logging.config.html#logging.config.dictConfig) so the file contents
-must obey the
-[Configuration dictionary schema](https://docs.python.org/library/logging.config.html#configuration-dictionary-schema).
-
 The same example above (also available at [log.yml](./log.yml)) can be achieved in YAML with:
 
 ```yaml
@@ -165,7 +229,6 @@ root:
   handlers: ['console']
   level: DEBUG
 ```
-
 
 
 ## Credits
