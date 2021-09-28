@@ -269,7 +269,7 @@ def main():
     parser.add_argument("--modbus", default=None, type=str,
         help="modbus device address (ex: tcp://plc.acme.org:502)"
     )
-    parser.add_argument("--modbus-connection-time", type=float, default=0.1,
+    parser.add_argument("--modbus-connection-time", type=float, default=0,
         help="delay after establishing connection with modbus before first request"
     )
     parser.add_argument("--timeout", type=float, default=10,
