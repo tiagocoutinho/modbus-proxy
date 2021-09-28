@@ -129,8 +129,9 @@ class Client(Connection):
 class ModBus(Connection):
 
     def __init__(self, config):
-        modbus, bind = config["modbus"], config["listen"]["bind"]
-        url = modbus["url"]
+        modbus = config["modbus"]
+        url = parse_url(modbus["url"])
+        bind = parse_url(config["listen"]["bind"])
         super().__init__(f"ModBus({url.hostname}:{url.port})", None, None)
         self.host = bind.hostname
         self.port = 502 if bind.port is None else bind.port
@@ -248,11 +249,6 @@ async def run(args):
             },
             "listen": listen
         })
-    # transport url strings in Url objects
-    for device in devices:
-        modbus, listen = device["modbus"], device["listen"]
-        modbus["url"] = parse_url(modbus["url"])
-        listen["bind"] = parse_url(listen["bind"])
     async with contextlib.AsyncExitStack() as stack:
         servers = [await stack.enter_async_context(ModBus(cfg)) for cfg in devices]
         coros = [server.serve_forever() for server in servers]
