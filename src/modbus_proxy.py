@@ -20,9 +20,7 @@ __version__ = "0.5.0"
 DEFAULT_LOG_CONFIG = {
     "version": 1,
     "formatters": {
-        "standard": {
-            "format": "%(asctime)s %(levelname)8s %(name)s: %(message)s"
-        }
+        "standard": {"format": "%(asctime)s %(levelname)8s %(name)s: %(message)s"}
     },
     "handlers": {
         "console": {
@@ -30,10 +28,7 @@ DEFAULT_LOG_CONFIG = {
             "formatter": "standard",
         }
     },
-    "root": {
-        "handlers": ['console'],
-        "level": "INFO"
-    }
+    "root": {"handlers": ["console"], "level": "INFO"},
 }
 
 log = logging.getLogger("modbus-proxy")
@@ -50,7 +45,6 @@ def parse_url(url):
 
 
 class Connection:
-
     def __init__(self, name, reader, writer):
         self.name = name
         self.reader = reader
@@ -65,7 +59,11 @@ class Connection:
 
     @property
     def opened(self):
-        return self.writer is not None and not self.writer.is_closing() and not self.reader.at_eof()
+        return (
+            self.writer is not None
+            and not self.writer.is_closing()
+            and not self.reader.at_eof()
+        )
 
     async def close(self):
         if self.writer is not None:
@@ -119,7 +117,6 @@ class Connection:
 
 
 class Client(Connection):
-
     def __init__(self, reader, writer):
         peer = writer.get_extra_info("peername")
         super().__init__(f"Client({peer[0]}:{peer[1]})", reader, writer)
@@ -127,7 +124,6 @@ class Client(Connection):
 
 
 class ModBus(Connection):
-
     def __init__(self, config):
         modbus = config["modbus"]
         url = parse_url(modbus["url"])
@@ -153,8 +149,9 @@ class ModBus(Connection):
 
     async def open(self):
         self.log.info("connecting to modbus...")
-        self.reader, self.writer = \
-            await asyncio.open_connection(self.modbus_host, self.modbus_port)
+        self.reader, self.writer = await asyncio.open_connection(
+            self.modbus_host, self.modbus_port
+        )
         self.log.info("connected!")
 
     async def connect(self):
@@ -213,13 +210,15 @@ class ModBus(Connection):
 def load_config(file_name):
     file_name = pathlib.Path(file_name)
     ext = file_name.suffix
-    if ext.endswith('toml'):
+    if ext.endswith("toml"):
         from toml import load
-    elif ext.endswith('yml') or ext.endswith('yaml'):
+    elif ext.endswith("yml") or ext.endswith("yaml"):
         import yaml
+
         def load(fobj):
             return yaml.load(fobj, Loader=yaml.Loader)
-    elif ext.endswith('json'):
+
+    elif ext.endswith("json"):
         from json import load
     else:
         raise NotImplementedError
@@ -231,8 +230,10 @@ def prepare_log(config, log_config_file=None):
     cfg = config.get("logging")
     if not cfg:
         if log_config_file:
-            if log_config_file.endswith('ini') or log_config_file.endswith('conf'):
-                logging.config.fileConfig(log_config_file, disable_existing_loggers=False)
+            if log_config_file.endswith("ini") or log_config_file.endswith("conf"):
+                logging.config.fileConfig(
+                    log_config_file, disable_existing_loggers=False
+                )
             else:
                 cfg = load_config(log_config_file)
         else:
@@ -241,10 +242,12 @@ def prepare_log(config, log_config_file=None):
         cfg.setdefault("version", 1)
         cfg.setdefault("disable_existing_loggers", False)
         logging.config.dictConfig(cfg)
-    warnings.simplefilter('always', DeprecationWarning)
+    warnings.simplefilter("always", DeprecationWarning)
     logging.captureWarnings(True)
     if log_config_file:
-        warnings.warn("log-config-file deprecated. Use config-file instead", DeprecationWarning)
+        warnings.warn(
+            "log-config-file deprecated. Use config-file instead", DeprecationWarning
+        )
         if "logging" in config:
             log.warning("log-config-file ignored. Using config file logging")
     return log
@@ -253,25 +256,35 @@ def prepare_log(config, log_config_file=None):
 def parse_args(args=None):
     parser = argparse.ArgumentParser(
         description="ModBus proxy",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument(
         "-c", "--config-file", default=None, type=str, help="config file"
     )
+    parser.add_argument("-b", "--bind", default=None, type=str, help="listen address")
     parser.add_argument(
-        "-b", "--bind", default=None, type=str, help="listen address"
+        "--modbus",
+        default=None,
+        type=str,
+        help="modbus device address (ex: tcp://plc.acme.org:502)",
     )
-    parser.add_argument("--modbus", default=None, type=str,
-        help="modbus device address (ex: tcp://plc.acme.org:502)"
+    parser.add_argument(
+        "--modbus-connection-time",
+        type=float,
+        default=0,
+        help="delay after establishing connection with modbus before first request",
     )
-    parser.add_argument("--modbus-connection-time", type=float, default=0,
-        help="delay after establishing connection with modbus before first request"
+    parser.add_argument(
+        "--timeout",
+        type=float,
+        default=10,
+        help="modbus connection and request timeout in seconds",
     )
-    parser.add_argument("--timeout", type=float, default=10,
-        help="modbus connection and request timeout in seconds"
-    )
-    parser.add_argument("--log-config-file", default=None, type=str,
-        help="log configuration file. By default log to stderr with log level = INFO"
+    parser.add_argument(
+        "--log-config-file",
+        default=None,
+        type=str,
+        help="log configuration file. By default log to stderr with log level = INFO",
     )
     return parser.parse_args(args=args)
 
@@ -285,14 +298,16 @@ def create_config(args):
     devices = config.setdefault("devices", [])
     if args.modbus:
         listen = {"bind": ":502" if args.bind is None else args.bind}
-        devices.append({
-            "modbus": {
-                "url": args.modbus,
-                "timeout": args.timeout,
-                "connection_time": args.modbus_connection_time
-            },
-            "listen": listen
-        })
+        devices.append(
+            {
+                "modbus": {
+                    "url": args.modbus,
+                    "timeout": args.timeout,
+                    "connection_time": args.modbus_connection_time,
+                },
+                "listen": listen,
+            }
+        )
     return config
 
 

@@ -19,34 +19,36 @@ from .conftest import REQ, REP
 
 
 Args = namedtuple(
-    "Args",
-    "config_file bind modbus modbus_connection_time timeout log_config_file"
+    "Args", "config_file bind modbus modbus_connection_time timeout log_config_file"
 )
 
 
 class Ready(asyncio.Event):
-
     def set(self, data):
         self.data = data
         super().set()
 
 
 @pytest.mark.parametrize(
-    "url, expected", [
+    "url, expected",
+    [
         ("tcp://host:502", urlparse("tcp://host:502")),
         ("host:502", urlparse("tcp://host:502")),
         ("tcp://:502", urlparse("tcp://0:502")),
         (":502", urlparse("tcp://0:502")),
-     ])
+    ],
+)
 def test_parse_url(url, expected):
     assert parse_url(url) == expected
 
 
 @pytest.mark.parametrize(
-    "args, expected", [
+    "args, expected",
+    [
         (["-c", "conf.yml"], Args("conf.yml", None, None, 0, 10, None)),
         (["--config-file", "conf.yml"], Args("conf.yml", None, None, 0, 10, None)),
-     ])
+    ],
+)
 def test_parse_args(args, expected):
     result = parse_args(args)
     assert result.config_file == expected.config_file
