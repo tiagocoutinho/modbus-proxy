@@ -1,9 +1,11 @@
 ## History
 
-### 0.6.0 (2021-09-28)
+### 0.6.1 (2021-09-29)
 
 * Change default command line `--modbus-connection-time` from 0.1 to 0
 * Add basic unit tests
+* Github actions
+* Repository cleanup
 
 ### 0.5.0 (2021-09-28)
 
