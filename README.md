@@ -203,7 +203,7 @@ If a `.conf` or `.ini` file is given, it is passed directly to
 obey the
 [Configuration file format](https://docs.python.org/library/logging.config.html#configuration-file-format).
 
-A simple logging configuration (also available at [log.conf](./log.conf))
+A simple logging configuration (also available at [log.conf](examples/log.conf))
 which mimics the default configuration looks like this:
 
 ```toml
@@ -229,9 +229,9 @@ handlers=console
 ```
 
 A more verbose example logging with a rotating file handler:
-[log-verbose.conf](./log-verbose.conf)
+[log-verbose.conf](examples/log-verbose.conf)
 
-The same example above (also available at [log.yml](./log.yml)) can be achieved in YAML with:
+The same example above (also available at [log.yml](examples/log.yml)) can be achieved in YAML with:
 
 ```yaml
 version: 1
