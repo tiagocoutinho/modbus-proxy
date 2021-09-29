@@ -181,13 +181,13 @@ class ModBus(Connection):
             while True:
                 request = await client.read()
                 if not request:
-                    return
+                    break
                 reply = await self.write_read(request)
                 if not reply:
-                    return
+                    break
                 result = await client.write(reply)
                 if not result:
-                    return
+                    break
 
     async def start(self):
         self.server = await asyncio.start_server(

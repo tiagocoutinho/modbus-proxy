@@ -7,13 +7,18 @@
 
 """Tests for `modbus_proxy` package."""
 
+import os
+import json
 import asyncio
 from collections import namedtuple
 from urllib.parse import urlparse
+from tempfile import NamedTemporaryFile
 
+import toml
+import yaml
 import pytest
 
-from modbus_proxy import parse_url, parse_args, run
+from modbus_proxy import parse_url, parse_args, load_config, run
 
 from .conftest import REQ, REP
 
@@ -21,6 +26,57 @@ from .conftest import REQ, REP
 Args = namedtuple(
     "Args", "config_file bind modbus modbus_connection_time timeout log_config_file"
 )
+
+
+CFG_YAML_TEXT = """\
+devices:
+- modbus:
+    url: plc1.acme.org:502
+  listen:
+    bind: 0:9000
+- modbus:
+    url: plc2.acme.org:502
+  listen:
+    bind: 0:9001
+"""
+
+CFG_TOML_TEXT = """
+[[devices]]
+
+[devices.modbus]
+url = "plc1.acme.org:502"
+[devices.listen]
+bind = "0:9000"
+[[devices]]
+
+[devices.modbus]
+url = "plc2.acme.org:502"
+[devices.listen]
+bind = "0:9001"
+"""
+
+CFG_JSON_TEXT = """
+{
+  "devices": [
+    {
+      "modbus": {
+        "url": "plc1.acme.org:502"
+      },
+      "listen": {
+        "bind": "0:9000"
+      }
+    },
+    {
+      "modbus": {
+        "url": "plc2.acme.org:502"
+      },
+      "listen": {
+        "bind": "0:9001"
+      }
+    }
+  ]
+}
+"""
 
 
 class Ready(asyncio.Event):
@@ -59,24 +115,60 @@ def test_parse_args(args, expected):
     assert result.log_config_file == expected.log_config_file
 
 
+@pytest.mark.parametrize(
+    "text, parser, suffix",
+    [
+        (CFG_YAML_TEXT, yaml.safe_load, ".yml"),
+        (CFG_TOML_TEXT, toml.loads, ".toml"),
+        (CFG_JSON_TEXT, json.loads, ".json"),
+    ],
+    ids=["yaml", "toml", "json"],
+)
+def test_load_config(text, parser, suffix):
+    with NamedTemporaryFile("w+", suffix=suffix, delete=False) as f:
+        f.write(text)
+    try:
+        config = load_config(f.name)
+    finally:
+        os.remove(f.name)
+    assert parser(text) == config
+
+
+async def open_connection(modbus):
+    return await asyncio.open_connection(*modbus.address)
+
+
+async def make_request(modbus):
+    r, w = await open_connection(modbus)
+    w.write(REQ)
+    await w.drain()
+    assert await r.readexactly(len(REP)) == REP
+    w.close()
+    await w.wait_closed()
+
+
 @pytest.mark.asyncio
 async def test_modbus(modbus):
 
     assert not modbus.opened
 
-    r, w = await asyncio.open_connection(*modbus.address)
-
-    assert not modbus.opened
-
-    w.write(REQ)
-    await w.drain()
-
-    assert await r.readexactly(len(REP)) == REP
+    await make_request(modbus)
 
     assert modbus.opened
 
+    # Don't make any request
+    _, w = await open_connection(modbus)
     w.close()
     await w.wait_closed()
+    await make_request(modbus)
+
+    # Don't wait for answer
+    _, w = await open_connection(modbus)
+    w.write(REQ)
+    await w.drain()
+    w.close()
+    await w.wait_closed()
+    await make_request(modbus)
 
 
 @pytest.mark.asyncio
@@ -88,12 +180,7 @@ async def test_run(modbus_device):
     try:
         await ready.wait()
         modbus = ready.data[0]
-        r, w = await asyncio.open_connection(*modbus.address)
-        w.write(REQ)
-        await w.drain()
-        assert await r.readexactly(len(REP)) == REP
-        w.close()
-        await w.wait_closed()
+        await make_request(modbus)
     finally:
         for bridge in ready.data:
             await bridge.close()
