@@ -52,6 +52,7 @@ setup(
     include_package_data=True,
     keywords='modbus, tcp, proxy',
     name='modbus-proxy',
+    package_dir={'': 'src'},
     py_modules=['modbus_proxy'],
     extras_require=extras_require,
     setup_requires=setup_requirements,
