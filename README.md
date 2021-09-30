@@ -4,7 +4,7 @@
 [![Python Versions][pypi-python-versions]](https://pypi.python.org/pypi/modbus-proxy)
 [![Pypi status][pypi-status]](https://pypi.python.org/pypi/modbus-proxy)
 ![License][license]
-[![Tests][tests]](https://github.com/tiagocoutinho/modbus-proxy/actions)
+[![CI][CI]](https://github.com/tiagocoutinho/modbus-proxy/actions/workflows/ci.yml)
 
 Many modbus devices support only one or very few clients. This proxy acts as a bridge between the client and the modbus device. It can be seen as a
 layer 7 reverse proxy.
@@ -262,4 +262,4 @@ None yet. Why not be the first?
 [pypi-version]: https://img.shields.io/pypi/v/modbus-proxy.svg
 [pypi-status]: https://img.shields.io/pypi/status/modbus-proxy.svg
 [license]: https://img.shields.io/pypi/l/modbus-proxy.svg
-[tests]: https://github.com/tiagocoutinho/modbus-proxy/actions/workflows/tests.yml/badge.svg
+[CI]: https://github.com/tiagocoutinho/modbus-proxy/actions/workflows/ci.yml/badge.svg
