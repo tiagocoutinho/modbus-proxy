@@ -23,10 +23,7 @@ DEFAULT_LOG_CONFIG = {
         "standard": {"format": "%(asctime)s %(levelname)8s %(name)s: %(message)s"}
     },
     "handlers": {
-        "console": {
-            "class": "logging.StreamHandler",
-            "formatter": "standard",
-        }
+        "console": {"class": "logging.StreamHandler", "formatter": "standard"}
     },
     "root": {"handlers": ["console"], "level": "INFO"},
 }
@@ -286,7 +283,11 @@ def parse_args(args=None):
         type=str,
         help="log configuration file. By default log to stderr with log level = INFO",
     )
-    return parser.parse_args(args=args)
+    options = parser.parse_args(args=args)
+
+    if not options.config_file and not options.modbus:
+        parser.exit(1, "must give a config-file or/and a --modbus")
+    return options
 
 
 def create_config(args):
