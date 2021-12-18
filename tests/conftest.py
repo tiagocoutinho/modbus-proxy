@@ -11,16 +11,26 @@ REQ = b"m\xf5\x00\x00\x00\x06\x01\x03\x00\x01\x00\x04"
 REP = b"m\xf5\x00\x00\x00\x0b\x01\x03\x08\x00\x01\x00\x02\x00\x03\x00\x04"
 
 
+# read_holding_registers(unit=1, start=2, size=3)
+#       |tid | tcp   | size  |uni|cod|s .addr|nb. reg|
+REQ2 = b"m\xf5\x00\x00\x00\x06\x01\x03\x00\x02\x00\x03"
+#       |tid | tcp   | size  |uni|cod|len|   2   |   3   |   4   |
+REP2 = b"m\xf5\x00\x00\x00\x09\x01\x03\x08\x00\x02\x00\x03\x00\x04"
+
+
 @pytest.fixture
 async def modbus_device():
     async def cb(r, w):
         while True:
-            d = await r.readexactly(6)
-            n = int.from_bytes(d[4:6], "big")
-            d += await r.readexactly(n)
-            if d == REQ:
-                w.write(REP)
-                await w.drain()
+            data = await r.readexactly(6)
+            size = int.from_bytes(data[4:6], "big")
+            data += await r.readexactly(size)
+            if data == REQ:
+                reply = REP
+            elif data == REQ2:
+                reply = REP2
+            w.write(reply)
+            await w.drain()
 
     try:
         server = await asyncio.start_server(cb, host="127.0.0.1")
