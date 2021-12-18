@@ -183,7 +183,7 @@ async def test_run(modbus_device):
         await make_request(modbus)
     finally:
         for bridge in ready.data:
-            await bridge.close()
+            await bridge.stop()
         try:
             await task
         except asyncio.CancelledError:

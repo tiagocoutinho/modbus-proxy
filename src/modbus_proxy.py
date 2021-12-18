@@ -135,10 +135,6 @@ class ModBus(Connection):
         self.server = None
         self.lock = asyncio.Lock()
 
-    async def close(self):
-        await self.stop()
-        await super().close()
-
     @property
     def address(self):
         if self.server is not None:
@@ -166,7 +162,9 @@ class ModBus(Connection):
                     coro = self._write_read(data)
                     return await asyncio.wait_for(coro, self.timeout)
                 except Exception as error:
-                    self.log.error("write_read error: %r", error)
+                    self.log.error(
+                        "write_read error [%s/%s]: %r", i + 1, attempts, error
+                    )
                     await self.close()
 
     async def _write_read(self, data):
@@ -195,6 +193,7 @@ class ModBus(Connection):
         if self.server is not None:
             self.server.close()
             await self.server.wait_closed()
+        await self.close()
 
     async def serve_forever(self):
         if self.server is None:
