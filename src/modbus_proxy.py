@@ -166,7 +166,9 @@ class ModBus(Connection):
                     coro = self._write_read(data)
                     return await asyncio.wait_for(coro, self.timeout)
                 except Exception as error:
-                    self.log.error("write_read error: %r", error)
+                    self.log.error(
+                        "write_read error [%s/%s]: %r", i + 1, attempts, error
+                    )
                     await self.close()
 
     async def _write_read(self, data):
