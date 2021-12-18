@@ -135,10 +135,6 @@ class ModBus(Connection):
         self.server = None
         self.lock = asyncio.Lock()
 
-    async def close(self):
-        await self.stop()
-        await super().close()
-
     @property
     def address(self):
         if self.server is not None:
@@ -197,6 +193,7 @@ class ModBus(Connection):
         if self.server is not None:
             self.server.close()
             await self.server.wait_closed()
+        await self.close()
 
     async def serve_forever(self):
         if self.server is None:
