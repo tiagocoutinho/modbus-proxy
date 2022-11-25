@@ -116,6 +116,29 @@ Finally run a the example client but now address the proxy instead of the server
 $ python examples/simple_tcp_client.py -a 0:9000
 holding registers: [1, 2, 3, 4]
 ```
+## Running as a Service
+1. move the config file to a location you can remember, for example: to `/usr/lib/mproxy-conf.yaml`
+2. go to `/etc/systemd/system/`
+3. use nano or any other text editor of your choice to create a service file `mproxy.service`
+4. the file should contain the following information:
+```
+[Unit]
+Description=Modbus-Proxy
+After=network.target
+
+[Service]
+Type=simple
+Restart=always
+ExecStart = modbus-proxy -c ./usr/lib/mproxy-conf.yaml
+
+[Install]
+WantedBy=multi-user.target
+```
+5. `run systemctl daemon-reload`
+6. `systemctl enable mproxy.service`
+7. `systemctl start mproxy.service`
+
+The file names given here are examples, you can choose other names, if you wish.
 
 ## Docker
 
