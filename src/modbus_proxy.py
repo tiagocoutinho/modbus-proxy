@@ -12,6 +12,7 @@ import argparse
 import warnings
 import contextlib
 import logging.config
+import struct
 from urllib.parse import urlparse
 
 __version__ = "0.6.8"
@@ -42,11 +43,26 @@ def parse_url(url):
 
 
 class TCP:
-    def __init__(self, name, reader=None, writer=None):
-        self.name = name
+    def __init__(self, host, port, reader=None, writer=None):
+        self.host = host
+        self.port = port
         self.reader = reader
         self.writer = writer
-        self.log = log.getChild(name)
+        self.log = log.getChild(self.name)
+
+    @property
+    def name(self):
+        return f"{type(self).__name__}({self.host}:{self.port})"
+
+    @classmethod
+    def from_url(cls, url):
+        url = parse_url(url)
+        return cls(url.hostname, url.port)
+
+    @classmethod
+    def from_connection(cls, reader, writer):
+        host, port = writer.get_extra_info("peername")
+        return cls(host, port, reader, writer)
 
     async def __aenter__(self):
         return self
@@ -62,10 +78,14 @@ class TCP:
             and not self.reader.at_eof()
         )
 
-    async def connect(self, host, port):
+    async def connect(self, host=None, port=None):
         await self.close()
-        self.log.info("connecting to modbus TCP at %s:%s...", host, port)
-        self.reader, self.writer = await asyncio.open_connection(host, port)
+        if host:
+            self.host = host
+        if port:
+            self.port = port
+        self.log.info("connecting to modbus TCP at %s:%s...", self.host, self.port)
+        self.reader, self.writer = await asyncio.open_connection(self.host, self.port)
         self.log.info("connected!")
 
     async def close(self):
@@ -126,13 +146,6 @@ class TCP:
         return await self.raw_read()
 
 
-class Client(TCP):
-    def __init__(self, reader, writer):
-        peer = writer.get_extra_info("peername")
-        super().__init__(f"Client({peer[0]}:{peer[1]})", reader, writer)
-        self.log.info("new client connection")
-
-
 class BaseProtocol:
 
     def __init__(self, transport):
@@ -156,37 +169,10 @@ class TCPProtocol(BaseProtocol):
         return reply
 
 
-class ModBusTCP:
-    def __init__(self, host, port):
-        self.host = host
-        self.port = port
-        self.tcp = TCP(f"TCP({self.host}:{self.port})")
-
-    async def connect(self):
-        await self.tcp.connect(self.host, self.port)
-
-    @property
-    def opened(self):
-        return self.tcp.opened
-
-    async def close(self):
-        await self.tcp.close()
-
-    async def write(self, data):
-        await self.tcp.write(data)
-
-    async def read_exactly(self, n):
-        return await self.tcp.read_exactly(n)
-
-    async def write_read(self, data):
-        return await self.tcp.raw_write_read(data)
-
-
-
 def modbus_for_url(url):
-    url = parse_url(url)
-    if url.scheme == "tcp":
-        transport = ModBusTCP(url.hostname, url.port)
+    url_parsed = parse_url(url)
+    if url_parsed.scheme == "tcp":
+        transport = TCP.from_url(url)
         protocol = TCPProtocol(transport)
     return transport, protocol
 
@@ -244,7 +230,7 @@ class Bridge:
                     await self.close()
 
     async def handle_client(self, reader, writer):
-        async with Client(reader, writer) as client:
+        async with TCP.from_connection(reader, writer) as client:
             while True:
                 request = await client.read()
                 if not request:
