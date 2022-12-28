@@ -71,14 +71,14 @@ class TCP:
         await self.close()
 
     @property
-    def opened(self):
+    def is_open(self):
         return (
             self.writer is not None
             and not self.writer.is_closing()
             and not self.reader.at_eof()
         )
 
-    async def connect(self, host=None, port=None):
+    async def open(self, host=None, port=None):
         await self.close()
         if host:
             self.host = host
@@ -181,8 +181,9 @@ class Bridge:
     def __init__(self, config):
         modbus = config["modbus"]
         url = modbus["url"]
-        bind = parse_url(config["listen"]["bind"])
+        bind = config["listen"]["bind"]
         self.log = log.getChild(f"Bridge({bind} <-> {url})")
+        bind = parse_url(bind)
         self.transport, self.protocol = modbus_for_url(url)
         self.host = bind.hostname
         self.port = 502 if bind.port is None else bind.port
@@ -206,21 +207,21 @@ class Bridge:
             return self.server.sockets[0].getsockname()
 
     @property
-    def opened(self):
-        return self.transport.opened
+    def is_open(self):
+        return self.transport.is_open
 
-    async def connect(self):
-        if not self.opened:
-            await asyncio.wait_for(self.transport.connect(), self.timeout)
-            if self.connection_time > 0:
-                self.log.info("delay after connect: %s", self.connection_time)
-                await asyncio.sleep(self.connection_time)
+    async def open(self):
+        await asyncio.wait_for(self.transport.open(), self.timeout)
+        if self.connection_time > 0:
+            self.log.info("delay after connect: %s", self.connection_time)
+            await asyncio.sleep(self.connection_time)
 
     async def write_read(self, data, attempts=2):
         async with self.lock:
             for i in range(attempts):
                 try:
-                    await self.connect()
+                    if not self.is_open:
+                        await self.open()
                     coro = self.protocol.write_read(data)
                     return await asyncio.wait_for(coro, self.timeout)
                 except Exception as error:

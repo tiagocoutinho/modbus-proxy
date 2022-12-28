@@ -161,11 +161,11 @@ async def make_requests(modbus, requests):
 @pytest.mark.asyncio
 async def test_modbus(modbus, req, rep):
 
-    assert not modbus.opened
+    assert not modbus.is_open
 
     await make_requests(modbus, [(req, rep)])
 
-    assert modbus.opened
+    assert modbus.is_open
 
     # Don't make any request
     _, w = await open_connection(modbus)
