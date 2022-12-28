@@ -1,8 +1,8 @@
 import asyncio
 
-import pytest
+import pytest_asyncio
 
-from modbus_proxy import ModBus
+from modbus_proxy import Bridge
 
 # read_holding_registers(unit=1, start=1, size=4)
 #      |tid | tcp   | size  |uni|cod|s .addr|nb. reg|
@@ -18,7 +18,7 @@ REQ2 = b"m\xf5\x00\x00\x00\x06\x01\x03\x00\x02\x00\x03"
 REP2 = b"m\xf5\x00\x00\x00\x09\x01\x03\x08\x00\x02\x00\x03\x00\x04"
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def modbus_device():
     async def cb(r, w):
         while True:
@@ -48,10 +48,10 @@ def modbus_config(modbus_device):
     }
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def modbus(modbus_device):
     cfg = modbus_config(modbus_device)
-    modbus = ModBus(cfg)
+    modbus = Bridge(cfg)
     await modbus.start()
     modbus.device = modbus_device
     modbus.cfg = cfg

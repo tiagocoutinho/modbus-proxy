@@ -41,8 +41,8 @@ def parse_url(url):
     return result
 
 
-class Connection:
-    def __init__(self, name, reader, writer):
+class TCP:
+    def __init__(self, name, reader=None, writer=None):
         self.name = name
         self.reader = reader
         self.writer = writer
@@ -62,6 +62,12 @@ class Connection:
             and not self.reader.at_eof()
         )
 
+    async def connect(self, host, port):
+        await self.close()
+        self.log.info("connecting to modbus TCP at %s:%s...", host, port)
+        self.reader, self.writer = await asyncio.open_connection(host, port)
+        self.log.info("connected!")
+
     async def close(self):
         if self.writer is not None:
             self.log.info("closing connection...")
@@ -76,21 +82,21 @@ class Connection:
                 self.reader = None
                 self.writer = None
 
-    async def _write(self, data):
+    async def raw_write(self, data):
         self.log.debug("sending %r", data)
         self.writer.write(data)
         await self.writer.drain()
 
     async def write(self, data):
         try:
-            await self._write(data)
+            await self.raw_write(data)
         except Exception as error:
             self.log.error("writting error: %r", error)
             await self.close()
             return False
         return True
 
-    async def _read(self):
+    async def raw_read(self):
         """Read ModBus TCP message"""
         # TODO: Handle Modbus RTU and ASCII
         header = await self.reader.readexactly(6)
@@ -101,7 +107,7 @@ class Connection:
 
     async def read(self):
         try:
-            return await self._read()
+            return await self.raw_read()
         except asyncio.IncompleteReadError as error:
             if error.partial:
                 self.log.error("reading error: %r", error)
@@ -112,20 +118,52 @@ class Connection:
             self.log.error("reading error: %r", error)
             await self.close()
 
+    async def raw_write_read(self, data):
+        await self.raw_write(data)
+        return await self.raw_read()
 
-class Client(Connection):
+
+class Client(TCP):
     def __init__(self, reader, writer):
         peer = writer.get_extra_info("peername")
         super().__init__(f"Client({peer[0]}:{peer[1]})", reader, writer)
         self.log.info("new client connection")
 
 
-class ModBus(Connection):
+class ModBusTCP:
+    def __init__(self, host, port):
+        self.host = host
+        self.port = port
+        self.tcp = TCP(f"TCP({self.host}:{self.port})")
+
+    async def connect(self):
+        await self.tcp.connect(self.host, self.port)
+
+    @property
+    def opened(self):
+        return self.tcp.opened
+
+    async def close(self):
+        await self.tcp.close()
+
+    async def write_read(self, data):
+        return await self.tcp.raw_write_read(data)
+
+
+
+def modbus_for_url(url):
+    url = parse_url(url)
+    if url.scheme == "tcp":
+        return ModBusTCP(url.hostname, url.port)
+
+
+class Bridge:
     def __init__(self, config):
         modbus = config["modbus"]
         url = parse_url(modbus["url"])
         bind = parse_url(config["listen"]["bind"])
-        super().__init__(f"ModBus({url.hostname}:{url.port})", None, None)
+        self.log = log.getChild(f"Bridge({modbus['url']})")
+        self.connection = ModBusTCP(url.hostname, url.port)
         self.host = bind.hostname
         self.port = 502 if bind.port is None else bind.port
         self.modbus_host = url.hostname
@@ -135,21 +173,27 @@ class ModBus(Connection):
         self.server = None
         self.lock = asyncio.Lock()
 
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc_value, tb):
+        await self.close()
+
+    async def close(self):
+        await self.connection.close()
+
     @property
     def address(self):
         if self.server is not None:
             return self.server.sockets[0].getsockname()
 
-    async def open(self):
-        self.log.info("connecting to modbus...")
-        self.reader, self.writer = await asyncio.open_connection(
-            self.modbus_host, self.modbus_port
-        )
-        self.log.info("connected!")
+    @property
+    def opened(self):
+        return self.connection.opened
 
     async def connect(self):
-        if not self.opened:
-            await asyncio.wait_for(self.open(), self.timeout)
+        if not self.connection.opened:
+            await asyncio.wait_for(self.connection.connect(), self.timeout)
             if self.connection_time > 0:
                 self.log.info("delay after connect: %s", self.connection_time)
                 await asyncio.sleep(self.connection_time)
@@ -159,17 +203,13 @@ class ModBus(Connection):
             for i in range(attempts):
                 try:
                     await self.connect()
-                    coro = self._write_read(data)
+                    coro = self.connection.write_read(data)
                     return await asyncio.wait_for(coro, self.timeout)
                 except Exception as error:
                     self.log.error(
                         "write_read error [%s/%s]: %r", i + 1, attempts, error
                     )
                     await self.close()
-
-    async def _write_read(self, data):
-        await self._write(data)
-        return await self._read()
 
     async def handle_client(self, reader, writer):
         async with Client(reader, writer) as client:
@@ -312,7 +352,7 @@ def create_config(args):
 
 
 def create_bridges(config):
-    return [ModBus(cfg) for cfg in config["devices"]]
+    return [Bridge(cfg) for cfg in config["devices"]]
 
 
 async def start_bridges(bridges):
