@@ -96,6 +96,9 @@ class TCP:
             return False
         return True
 
+    async def read_exactly(self, n):
+        return await self.reader.readexactly(n)
+
     async def raw_read(self):
         """Read ModBus TCP message"""
         # TODO: Handle Modbus RTU and ASCII
@@ -130,6 +133,29 @@ class Client(TCP):
         self.log.info("new client connection")
 
 
+class BaseProtocol:
+
+    def __init__(self, transport):
+        self.transport = transport
+
+    async def write_read(self, data):
+        await self.transport.write(data)
+        return await self.read()
+
+    async def read(self):
+        raise NotImplementedError
+
+
+class TCPProtocol(BaseProtocol):
+
+    async def read(self):
+        """Read ModBus TCP message"""
+        header = await self.transport.read_exactly(6)
+        size = int.from_bytes(header[4:], "big")
+        reply = header + await self.transport.read_exactly(size)
+        return reply
+
+
 class ModBusTCP:
     def __init__(self, host, port):
         self.host = host
@@ -146,6 +172,12 @@ class ModBusTCP:
     async def close(self):
         await self.tcp.close()
 
+    async def write(self, data):
+        await self.tcp.write(data)
+
+    async def read_exactly(self, n):
+        return await self.tcp.read_exactly(n)
+
     async def write_read(self, data):
         return await self.tcp.raw_write_read(data)
 
@@ -154,20 +186,20 @@ class ModBusTCP:
 def modbus_for_url(url):
     url = parse_url(url)
     if url.scheme == "tcp":
-        return ModBusTCP(url.hostname, url.port)
+        transport = ModBusTCP(url.hostname, url.port)
+        protocol = TCPProtocol(transport)
+    return transport, protocol
 
 
 class Bridge:
     def __init__(self, config):
         modbus = config["modbus"]
-        url = parse_url(modbus["url"])
+        url = modbus["url"]
         bind = parse_url(config["listen"]["bind"])
-        self.log = log.getChild(f"Bridge({modbus['url']})")
-        self.connection = ModBusTCP(url.hostname, url.port)
+        self.log = log.getChild(f"Bridge({bind} <-> {url})")
+        self.transport, self.protocol = modbus_for_url(url)
         self.host = bind.hostname
         self.port = 502 if bind.port is None else bind.port
-        self.modbus_host = url.hostname
-        self.modbus_port = url.port
         self.timeout = modbus.get("timeout", None)
         self.connection_time = modbus.get("connection_time", 0)
         self.server = None
@@ -180,7 +212,7 @@ class Bridge:
         await self.close()
 
     async def close(self):
-        await self.connection.close()
+        await self.transport.close()
 
     @property
     def address(self):
@@ -189,11 +221,11 @@ class Bridge:
 
     @property
     def opened(self):
-        return self.connection.opened
+        return self.transport.opened
 
     async def connect(self):
-        if not self.connection.opened:
-            await asyncio.wait_for(self.connection.connect(), self.timeout)
+        if not self.opened:
+            await asyncio.wait_for(self.transport.connect(), self.timeout)
             if self.connection_time > 0:
                 self.log.info("delay after connect: %s", self.connection_time)
                 await asyncio.sleep(self.connection_time)
@@ -203,7 +235,7 @@ class Bridge:
             for i in range(attempts):
                 try:
                     await self.connect()
-                    coro = self.connection.write_read(data)
+                    coro = self.protocol.write_read(data)
                     return await asyncio.wait_for(coro, self.timeout)
                 except Exception as error:
                     self.log.error(
