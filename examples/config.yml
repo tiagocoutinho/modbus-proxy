@@ -1,0 +1,25 @@
+devices:
+- modbus:
+    # run simple_tcp_server.py for this to work 
+    url: 127.0.0.1:5020
+  listen:
+    bind: 0:5021
+
+- modbus:
+    # need to run simple_rtu_server.py for this to work
+    url: serial:///tmp/modbus-demo
+  listen:
+    bind: 0:5022
+
+logging:
+  version: 1
+  formatters:
+    standard:
+      format: "%(asctime)s %(levelname)8s %(name)s: %(message)s"
+  handlers:
+    console:
+      class: logging.StreamHandler
+      formatter: standard
+  root:
+    handlers: ['console']
+    level: DEBUG
