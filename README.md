@@ -16,60 +16,72 @@ When multiple clients are connected, cross messages are avoided by serializing c
 
 From within your favorite python 3 environment type:
 
-`$ pip install modbus-proxy`
+`$ pip install modbus-proxy[all]`
 
-Note: On some systems `pip` points to a python 2 installation.
-You might need to use `pip3` command instead.
+Advanced installation for a specific environments:
 
-Additionally, if you want logging configuration:
-* YAML: `pip install modbus-proxy[yaml]` (see below)
-* TOML: `pip install modbus-proxy[toml]` (see below)
+* YAML: `pip install modbus-proxy[yaml]`
+* TOML: `pip install modbus-proxy[toml]`
+* serial line support: `pip install modbus-proxy[serial]`
 
 ## Running the server
 
-First, you will need write a configuration file where you specify for each modbus device you which to control:
+First, you will need to write a configuration file where you specify for each
+modbus device you which to control:
 
 * modbus connection (the modbus device url)
 * listen interface (to which url your clients should connect)
 
 Configuration files can be written in YAML (*.yml* or *.yaml*) or TOML (*.toml*).
 
-Suppose you have a PLC modbus device listening on *plc1.acme.org:502* and you want your clients to
-connect to your machine on port 9000. A YAML configuration would look like this:
+Suppose you have a PLC modbus device listening on *plc1.acme.org:502* and you
+want your clients to connect to your machine on port 9000. A YAML configuration
+would look like this:
 
 ```yaml
 devices:
 - modbus:
-    url: plc1.acme.org:502     # device url (mandatory)
+    url: plc1.acme.org:502     # device url (mandatory). This will assume modbus TCP over TCP
     timeout: 10                # communication timeout (s) (optional, default: 10)
     connection_time: 0.1       # delay after connection (s) (optional, default: 0)
   listen:
     bind: 0:9000               # listening address (mandatory)
 ```
 
-Assuming you saved this file as `modbus-config.yml`, start the server with:
+Assuming you saved this file as `modbus-proxy-config.yml`, start the server 
+with:
 
 ```bash
-$ modbus-proxy -c ./modbus-config.yml
+$ modbus-proxy -c ./modbus-proxy-config.yml
 ```
 
 Now, instead of connecting your client(s) to `plc1.acme.org:502` you just need to
 tell them to connect to `*machine*:9000` (where *machine* is the host where
 modbus-proxy is running).
 
-Note that the server is capable of handling multiple modbus devices. Here is a
+Note that the server is able to handle multiple incoming clients on port 9000.
+Each client request will be served on a FIFO fashion.
+
+The server is also capable of handling multiple modbus devices. Here is a
 configuration example for 2 devices:
 
 ```yaml
 devices:
 - modbus:
-    url: plc1.acme.org:502
+    url: plc1.acme.org:502       # assumes modbus TCP over TCP connection (*)
   listen:
     bind: 0:9000
+
 - modbus:
-    url: plc2.acme.org:502
+    url: serial:///dev/ttyS1     # assume modbus RTU over serial line (**) 
   listen:
     bind: 0:9001
+
+# (*) Use tcp+rtu://<host>:<port> for modbus RTU over TCP socket. Useful when configuring
+#     ser2net in raw mode 
+# (**) Use serial+tcp:// scheme if you wish to force modbus TCP over serial line.
+#      Use rfc2217://<host>:<port> for modbus RTU over ser2net. Useful when configuring
+#      ser2net in telnet mode 
 ```
 
 If you have a *single* modbus device, you can avoid writting a configuration file by
@@ -88,16 +100,24 @@ To run the examples you will need to have
 [umodbus](https://github.com/AdvancedClimateSystems/uModbus) installed (do it
 with `pip install umodbus`).
 
-Start the `simple_tcp_server.py` (this will simulate an actual modbus hardware):
+Start the `simple_tcp_server.py` (this will simulate an actual modbus hardware
+handling modbus TCP protocol):
 
 ```bash
-$ python examples/simple_tcp_server.py -b :5020
+$ python examples/simple_tcp_server.py
+```
+
+Start the `simple_tcp_server.py` (this will simulate an actual modbus hardware
+handling modbus RTU protocol):
+
+```bash
+$ python examples/simple_rtu_server.py
 ```
 
 You can run the example client just to be sure direct communication works:
 
 ```bash
-$ python examples/simple_tcp_client.py -a 0:5020
+$ python examples/simple_tcp_client.py -a localhost:5020
 holding registers: [1, 2, 3, 4]
 ```
 
@@ -106,14 +126,21 @@ Now for the real test:
 Start a modbus-proxy bridge server with:
 
 ```bash
-$ modbus-proxy -b tcp://:9000 --modbus tcp://:5020
+$ modbus-proxy examples/modbus-proxy-config.yml
 ```
 
 Finally run a the example client but now address the proxy instead of the server
-(notice we are now using port *9000* and not *5020*):
+(notice we are now using port *5021* and not *5020*):
 
 ```bash
-$ python examples/simple_tcp_client.py -a 0:9000
+$ python examples/simple_tcp_client.py -a localhost:5021
+holding registers: [1, 2, 3, 4]
+```
+
+The modbus RTU should also work:
+
+```bash
+$ python examples/simple_rtu_client.py -a localhost:5022
 holding registers: [1, 2, 3, 4]
 ```
 
