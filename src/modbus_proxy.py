@@ -5,18 +5,53 @@
 # Copyright (c) 2020-2021 Tiago Coutinho
 # Distributed under the GPLv3 license. See LICENSE for more info.
 
-
-import asyncio
-import pathlib
 import argparse
-import warnings
+import asyncio
 import contextlib
 import logging.config
+import pathlib
 import struct
+import warnings
 from urllib.parse import urlparse
 
 __version__ = "0.6.8"
 
+
+# Function related to data access.
+READ_COILS = 1
+READ_DISCRETE_INPUTS = 2
+READ_HOLDING_REGISTERS = 3
+READ_INPUT_REGISTERS = 4
+
+WRITE_SINGLE_COIL = 5
+WRITE_SINGLE_REGISTER = 6
+WRITE_MULTIPLE_COILS = 15
+WRITE_MULTIPLE_REGISTERS = 16
+
+READ_FILE_RECORD = 20
+
+WRITE_FILE_RECORD = 21
+
+READ_WRITE_MULTIPLE_REGISTERS = 23
+READ_FIFO_QUEUE = 24
+
+# Diagnostic functions, only available when using serial line.
+READ_EXCEPTION_STATUS = 7
+DIAGNOSTICS = 8
+GET_COMM_EVENT_COUNTER = 11
+GET_COM_EVENT_LOG = 12
+REPORT_SERVER_ID = 17
+
+GENERAL_FUNCS = {
+    READ_COILS,
+    READ_DISCRETE_INPUTS,
+    READ_HOLDING_REGISTERS,
+    READ_INPUT_REGISTERS,
+    WRITE_SINGLE_COIL,
+    WRITE_SINGLE_REGISTER,
+    WRITE_MULTIPLE_COILS,
+    WRITE_MULTIPLE_REGISTERS,
+}
 
 DEFAULT_LOG_CONFIG = {
     "version": 1,
@@ -102,78 +137,128 @@ class TCP:
                 self.reader = None
                 self.writer = None
 
-    async def raw_write(self, data):
+    async def write(self, data):
         self.log.debug("sending %r", data)
         self.writer.write(data)
         await self.writer.drain()
 
-    async def write(self, data):
-        try:
-            await self.raw_write(data)
-        except Exception as error:
-            self.log.error("writting error: %r", error)
-            await self.close()
-            return False
-        return True
-
     async def read_exactly(self, n):
-        return await self.reader.readexactly(n)
-
-    async def raw_read(self):
-        """Read ModBus TCP message"""
-        # TODO: Handle Modbus RTU and ASCII
-        header = await self.reader.readexactly(6)
-        size = int.from_bytes(header[4:], "big")
-        reply = header + await self.reader.readexactly(size)
-        self.log.debug("received %r", reply)
-        return reply
-
-    async def read(self):
-        try:
-            return await self.raw_read()
-        except asyncio.IncompleteReadError as error:
-            if error.partial:
-                self.log.error("reading error: %r", error)
-            else:
-                self.log.info("client closed connection")
-            await self.close()
-        except Exception as error:
-            self.log.error("reading error: %r", error)
-            await self.close()
-
-    async def raw_write_read(self, data):
-        await self.raw_write(data)
-        return await self.raw_read()
+        self.log.debug("reading %d...", n)
+        result = await self.reader.readexactly(n)
+        self.log.debug("read %r", result)
+        return result
 
 
 class BaseProtocol:
-
     def __init__(self, transport):
         self.transport = transport
 
-    async def write_read(self, data):
-        await self.transport.write(data)
-        return await self.read()
-
-    async def read(self):
+    async def read_request_frame(self):
         raise NotImplementedError
+
+    async def read_response_frame(self):
+        raise NotImplementedError
+
+    async def write_frame(self, frame: bytes) -> bool:
+        await self.transport.write(frame)
+
+    async def write_read_response_frame(self, request_frame):
+        await self.write_frame(request_frame)
+        return await self.read_response_frame()
 
 
 class TCPProtocol(BaseProtocol):
-
-    async def read(self):
+    async def read_frame(self):
         """Read ModBus TCP message"""
         header = await self.transport.read_exactly(6)
         size = int.from_bytes(header[4:], "big")
         reply = header + await self.transport.read_exactly(size)
         return reply
 
+    read_request_frame = read_frame
+    read_response_frame = read_frame
+
+
+class RTUProtocol(BaseProtocol):
+
+    REQ_DYNAMIC = {WRITE_MULTIPLE_COILS, WRITE_MULTIPLE_REGISTERS}
+    REQ_STATIC = GENERAL_FUNCS - REQ_DYNAMIC
+
+    RESP_STATIC = {
+        WRITE_SINGLE_COIL,
+        WRITE_SINGLE_REGISTER,
+        WRITE_MULTIPLE_COILS,
+        WRITE_MULTIPLE_REGISTERS,
+    }
+    RESP_DYNAMIC = GENERAL_FUNCS - RESP_STATIC
+
+    async def read_request_frame(self):
+        """Read ModBus RTU request from client"""
+        payload = await self.transport.read_exactly(7)
+        address, func, starting_address, value, byte_count = struct.unpack(
+            ">BBHHB", payload
+        )
+        if func in self.REQ_STATIC:
+            byte_count = 1  # second byte of CRC
+        elif func in self.REQ_DYNAMIC:
+            byte_count += 2  # CRC
+        else:
+            byte_count = 1  # second byte of CRC ?
+            self.transport.log.warning("request: unknown modbus func code %s", func)
+        # CRC is 2 bytes long
+        payload += await self.transport.read_exactly(byte_count)
+        return payload
+
+    async def read_response_frame(self):
+        """Read ModBus RTU response from modbus"""
+        payload = await self.transport.read_exactly(2)
+        address, func = struct.unpack(">BB", payload)
+        if func in self.RESP_STATIC:
+            byte_count = 4
+        elif func in self.RESP_DYNAMIC:
+            end = await self.transport.read_exactly(1)
+            payload += end
+            byte_count = struct.unpack(">B", end)[0]
+        elif func & 0x80:  # an error
+            byte_count = 1
+        else:
+            byte_count = 0
+            self.transport.log.warning("response: unknown modbus func code %s", func)
+
+        # CRC is 2 bytes long
+        payload += await self.transport.read_exactly(byte_count + 2)
+        return payload
+
+
+def transport_protocol_for_url(url):
+    url_parsed = parse_url(url)
+    scheme = url_parsed.scheme
+    if not scheme:
+        scheme = "tcp"
+    if "+" in scheme:
+        transport, protocol = scheme.split("+", 1)
+    elif scheme == "tcp":
+        transport, protocol = "tcp", "tcp"
+    else:
+        transport, protocol = scheme, "rtu"
+    return transport, protocol
+
 
 def modbus_for_url(url):
-    url_parsed = parse_url(url)
-    if url_parsed.scheme == "tcp":
+    transport_name, protocol_name = transport_protocol_for_url(url)
+    if transport_name == "tcp":
         transport = TCP.from_url(url)
+    else:
+        import serialio
+
+        transport = serialio.serial_for_url(url)
+        transport.read_exactly = transport.read
+    if protocol_name == "tcp":
         protocol = TCPProtocol(transport)
+    elif protocol_name == "rtu":
+        protocol = RTUProtocol(transport)
+    else:
+        raise ValueError(f"uknnown protocol for {url!r}")
     return transport, protocol
 
 
@@ -183,6 +268,7 @@ class Bridge:
         url = modbus["url"]
         bind = config["listen"]["bind"]
         self.log = log.getChild(f"Bridge({bind} <-> {url})")
+        self.config = config
         bind = parse_url(bind)
         self.transport, self.protocol = modbus_for_url(url)
         self.host = bind.hostname
@@ -216,31 +302,43 @@ class Bridge:
             self.log.info("delay after connect: %s", self.connection_time)
             await asyncio.sleep(self.connection_time)
 
-    async def write_read(self, data, attempts=2):
+    async def write_read_response_frame(self, request_frame, attempts=2):
         async with self.lock:
             for i in range(attempts):
                 try:
                     if not self.is_open:
                         await self.open()
-                    coro = self.protocol.write_read(data)
+                    coro = self.protocol.write_read_response_frame(request_frame)
                     return await asyncio.wait_for(coro, self.timeout)
                 except Exception as error:
+                    await self.close()
+                    if i + 1 == attempts:
+                        raise
                     self.log.error(
                         "write_read error [%s/%s]: %r", i + 1, attempts, error
                     )
-                    await self.close()
+
+    async def handle_client_message(self, client):
+        request_frame = await client.read_request_frame()
+        reply = await self.write_read_response_frame(request_frame)
+        await client.write_frame(reply)
 
     async def handle_client(self, reader, writer):
-        async with TCP.from_connection(reader, writer) as client:
+        async with TCP.from_connection(reader, writer) as transport:
+            protocol = type(self.protocol)(transport)
             while True:
-                request = await client.read()
-                if not request:
+                try:
+                    await self.handle_client_message(protocol)
+                except asyncio.IncompleteReadError as error:
+                    if error.partial:
+                        transport.log.error("reading error: %r", error)
+                    else:
+                        transport.log.info("client closed connection")
+                    await transport.close()
                     break
-                reply = await self.write_read(request)
-                if not reply:
-                    break
-                result = await client.write(reply)
-                if not result:
+                except Exception as error:
+                    transport.log.error("reading error: %r", error)
+                    await transport.close()
                     break
 
     async def start(self):
