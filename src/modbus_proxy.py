@@ -236,7 +236,7 @@ def transport_protocol_for_url(url):
     if not scheme:
         scheme = "tcp"
     if "+" in scheme:
-        transport, protocol = scheme.split("+", 1)
+        transport, protocol = scheme.rsplit("+", 1)
     elif scheme == "tcp":
         transport, protocol = "tcp", "tcp"
     else:
