@@ -18,7 +18,13 @@ import toml
 import yaml
 import pytest
 
-from modbus_proxy import parse_url, parse_args, transport_protocol_for_url, load_config, run
+from modbus_proxy import (
+    parse_url,
+    parse_args,
+    transport_protocol_for_url,
+    load_config,
+    run,
+)
 
 from .conftest import REQ_TCP, REP_TCP, REQ2_TCP, REP2_TCP
 from .conftest import REQ_RTU, REP_RTU, REQ2_RTU, REP2_RTU
@@ -112,7 +118,7 @@ def test_parse_url(url, expected):
         ("rfc2217://host:502", ("rfc2217", "rtu")),
         ("serial+tcp:///dev/ttyS0", ("serial", "tcp")),
         ("serial+tcp+rtu:///dev/ttyS0", ("serial+tcp", "rtu")),
-    ]
+    ],
 )
 def test_transport_protocol_for_url(url, expected):
     assert transport_protocol_for_url(url) == expected

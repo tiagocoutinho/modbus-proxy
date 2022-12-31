@@ -244,6 +244,7 @@ def modbus_for_url(url):
         transport = TCP.from_url(url)
     else:
         import serialio
+
         transport = serialio.serial_for_url(url)
         transport.read_exactly = transport.read
     if protocol_name == "tcp":
