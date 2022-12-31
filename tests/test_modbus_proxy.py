@@ -18,10 +18,10 @@ import toml
 import yaml
 import pytest
 
-from modbus_proxy import parse_url, parse_args, load_config, run
+from modbus_proxy import parse_url, parse_args, transport_protocol_for_url, load_config, run
 
-from .conftest import REQ, REP, REQ2, REP2
-
+from .conftest import REQ_TCP, REP_TCP, REQ2_TCP, REP2_TCP
+from .conftest import REQ_RTU, REP_RTU, REQ2_RTU, REP2_RTU
 
 Args = namedtuple(
     "Args", "config_file bind modbus modbus_connection_time timeout log_config_file"
@@ -100,6 +100,25 @@ def test_parse_url(url, expected):
 
 
 @pytest.mark.parametrize(
+    "url, expected",
+    [
+        ("host:502", ("tcp", "tcp")),
+        ("tcp://host:502", ("tcp", "tcp")),
+        ("tcp://:502", ("tcp", "tcp")),
+        (":502", ("tcp", "tcp")),
+        ("tcp+rtu://host:502", ("tcp", "rtu")),
+        ("tcp+rtu://:502", ("tcp", "rtu")),
+        ("serial:///dev/ttyS0", ("serial", "rtu")),
+        ("rfc2217://host:502", ("rfc2217", "rtu")),
+        ("serial+tcp:///dev/ttyS0", ("serial", "tcp")),
+        ("serial+tcp+rtu:///dev/ttyS0", ("serial+tcp", "rtu")),
+    ]
+)
+def test_transport_protocol_for_url(url, expected):
+    assert transport_protocol_for_url(url) == expected
+
+
+@pytest.mark.parametrize(
     "args, expected",
     [
         (["-c", "conf.yml"], Args("conf.yml", None, None, 0, 10, None)),
@@ -136,12 +155,12 @@ def test_load_config(text, parser, suffix):
     assert parser(text) == config
 
 
-async def open_connection(modbus):
-    return await asyncio.open_connection(*modbus.address)
+async def open_connection(modbus_tcp):
+    return await asyncio.open_connection(*modbus_tcp.address)
 
 
-async def make_requests(modbus, requests):
-    reader, writer = await open_connection(modbus)
+async def make_requests(modbus_tcp, requests):
+    reader, writer = await open_connection(modbus_tcp)
     for request, reply in requests:
         writer.write(request)
         await writer.drain()
@@ -150,62 +169,101 @@ async def make_requests(modbus, requests):
     await writer.wait_closed()
 
 
+async def make_rtu_requests(modbus_rtu, requests):
+    serial = modbus_rtu.device
+    for request, reply in requests:
+        await serial.write(request)
+        assert await serial.read(len(reply)) == reply
+
+
 @pytest.mark.parametrize(
     "req, rep",
     [
-        (REQ, REP),
-        (REQ2, REP2),
+        (REQ_TCP, REP_TCP),
+        (REQ2_TCP, REP2_TCP),
     ],
     ids=["req1", "req2"],
 )
 @pytest.mark.asyncio
-async def test_modbus(modbus, req, rep):
+async def test_modbus(modbus_tcp, req, rep):
 
-    assert not modbus.is_open
+    assert not modbus_tcp.is_open
 
-    await make_requests(modbus, [(req, rep)])
+    await make_requests(modbus_tcp, [(req, rep)])
 
-    assert modbus.is_open
+    assert modbus_tcp.is_open
 
     # Don't make any request
-    _, w = await open_connection(modbus)
+    _, w = await open_connection(modbus_tcp)
     w.close()
     await w.wait_closed()
-    await make_requests(modbus, [(req, rep)])
+    await make_requests(modbus_tcp, [(req, rep)])
 
     # Don't wait for answer
-    _, w = await open_connection(modbus)
-    w.write(REQ)
+    _, w = await open_connection(modbus_tcp)
+    w.write(REQ_TCP)
     await w.drain()
     w.close()
     await w.wait_closed()
-    await make_requests(modbus, [(req, rep)])
+    await make_requests(modbus_tcp, [(req, rep)])
+
+
+@pytest.mark.parametrize(
+    "req, rep",
+    [
+        (REQ_RTU, REP_RTU),
+        (REQ2_RTU, REP2_RTU),
+    ],
+    ids=["req1", "req2"],
+)
+@pytest.mark.asyncio
+async def test_modbus_rtu(modbus_rtu, req, rep):
+
+    assert not modbus_rtu.is_open
+
+    await make_requests(modbus_rtu, [(req, rep)])
+
+    assert modbus_rtu.is_open
+
+    # Don't make any request
+    _, w = await open_connection(modbus_rtu)
+    w.close()
+    await w.wait_closed()
+    await make_requests(modbus_rtu, [(req, rep)])
+
+    # Don't wait for answer
+    _, w = await open_connection(modbus_rtu)
+    w.write(REQ_RTU)
+    await w.drain()
+    w.close()
+    await w.wait_closed()
+    await make_requests(modbus_rtu, [(req, rep)])
 
 
 @pytest.mark.asyncio
-async def test_concurrent_clients(modbus):
-    task1 = asyncio.create_task(make_requests(modbus, 10 * [(REQ, REP)]))
-    task2 = asyncio.create_task(make_requests(modbus, 12 * [(REQ2, REP2)]))
+async def test_concurrent_clients(modbus_tcp):
+    task1 = asyncio.create_task(make_requests(modbus_tcp, 10 * [(REQ_TCP, REP_TCP)]))
+    task2 = asyncio.create_task(make_requests(modbus_tcp, 12 * [(REQ2_TCP, REP2_TCP)]))
     await task1
     await task2
 
 
 @pytest.mark.asyncio
-async def test_concurrent_clients_with_misbihaved(modbus):
-    task1 = asyncio.create_task(make_requests(modbus, 10 * [(REQ, REP)]))
-    task2 = asyncio.create_task(make_requests(modbus, 12 * [(REQ2, REP2)]))
+async def test_concurrent_clients_with_misbihaved(modbus_tcp):
+    task1 = asyncio.create_task(make_requests(modbus_tcp, 10 * [(REQ_TCP, REP_TCP)]))
+    task2 = asyncio.create_task(make_requests(modbus_tcp, 12 * [(REQ2_TCP, REP2_TCP)]))
 
     async def misbihaved(n):
         for i in range(n):
             # Don't make any request
-            _, writer = await open_connection(modbus)
+            _, writer = await open_connection(modbus_tcp)
             writer.close()
             await writer.wait_closed()
-            await make_requests(modbus, [(REQ, REP)])
+            await make_requests(modbus_tcp, [(REQ_TCP, REP_TCP)])
 
             # Don't wait for answer
-            _, writer = await open_connection(modbus)
-            writer.write(REQ2)
+            _, writer = await open_connection(modbus_tcp)
+            writer.write(REQ2_TCP)
             await writer.drain()
             writer.close()
             await writer.wait_closed()
@@ -219,14 +277,14 @@ async def test_concurrent_clients_with_misbihaved(modbus):
 @pytest.mark.parametrize(
     "req, rep",
     [
-        (REQ, REP),
-        (REQ2, REP2),
+        (REQ_TCP, REP_TCP),
+        (REQ2_TCP, REP2_TCP),
     ],
     ids=["req1", "req2"],
 )
 @pytest.mark.asyncio
-async def test_run(modbus_device, req, rep):
-    addr = "{}:{}".format(*modbus_device.address)
+async def test_run(modbus_tcp_device, req, rep):
+    addr = "{}:{}".format(*modbus_tcp_device.address)
     args = ["--modbus", addr, "--bind", "127.0.0.1:0"]
     ready = Ready()
     task = asyncio.create_task(run(args, ready))
@@ -244,9 +302,9 @@ async def test_run(modbus_device, req, rep):
 
 
 @pytest.mark.asyncio
-async def test_device_not_connected(modbus):
-    modbus.device.close()
-    await modbus.device.wait_closed()
+async def test_device_not_connected(modbus_tcp):
+    modbus_tcp.device.close()
+    await modbus_tcp.device.wait_closed()
 
     with pytest.raises(asyncio.IncompleteReadError):
-        await make_requests(modbus, [(REQ, REP)])
+        await make_requests(modbus_tcp, [(REQ_TCP, REP_TCP)])
