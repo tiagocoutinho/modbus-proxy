@@ -113,12 +113,8 @@ class TCP:
             and not self.reader.at_eof()
         )
 
-    async def open(self, host=None, port=None):
+    async def open(self):
         await self.close()
-        if host:
-            self.host = host
-        if port:
-            self.port = port
         self.log.info("connecting to modbus TCP at %s:%s...", self.host, self.port)
         self.reader, self.writer = await asyncio.open_connection(self.host, self.port)
         self.log.info("connected!")
