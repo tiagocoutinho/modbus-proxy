@@ -229,8 +229,6 @@ class RTUProtocol(BaseProtocol):
 def transport_protocol_for_url(url):
     url_parsed = parse_url(url)
     scheme = url_parsed.scheme
-    if not scheme:
-        scheme = "tcp"
     if "+" in scheme:
         transport, protocol = scheme.rsplit("+", 1)
     elif scheme == "tcp":
@@ -246,7 +244,6 @@ def modbus_for_url(url):
         transport = TCP.from_url(url)
     else:
         import serialio
-
         transport = serialio.serial_for_url(url)
         transport.read_exactly = transport.read
     if protocol_name == "tcp":
