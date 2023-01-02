@@ -145,7 +145,7 @@ async def make_rtu_request(modbus, message, expected):
 
 
 async def make_request(modbus, message, expected):
-   async with open_connection(modbus) as (reader, writer):
+    async with open_connection(modbus) as (reader, writer):
         response = await send_tcp_message(message, reader, writer)
         assert response == expected
 
