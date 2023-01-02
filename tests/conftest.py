@@ -11,7 +11,7 @@ from umodbus.server import tcp
 from umodbus.server.serial import get_server as get_serial_server
 from umodbus.server.serial import rtu
 
-from modbus_proxy import Bridge, RTUProtocol
+from modbus_proxy import Bridge
 
 
 def create_rtu_server():
