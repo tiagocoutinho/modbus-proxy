@@ -282,7 +282,7 @@ class Bridge:
         await self.transport.close()
 
     @property
-    def address(self):
+    def server_address(self):
         if self.server is not None:
             return self.server.sockets[0].getsockname()
 
@@ -344,6 +344,7 @@ class Bridge:
         if self.server is not None:
             self.server.close()
             await self.server.wait_closed()
+            self.server = None
         await self.close()
 
     async def serve_forever(self):

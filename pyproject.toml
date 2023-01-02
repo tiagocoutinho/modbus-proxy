@@ -7,7 +7,7 @@ minversion = "6.0"
 addopts = [
     "--cov=modbus_proxy",
     "--cov-report=html", "--cov-report=term",
-    "--durations=2", "--verbose"
+    "--durations=5", "--verbose"
 ]
 testpaths = ["tests"]
 
