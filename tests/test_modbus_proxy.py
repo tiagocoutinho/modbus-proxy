@@ -103,10 +103,12 @@ async def send_tcp_message(adu, reader, writer):
     response_error_adu = await reader.readexactly(exception_adu_size)
     tcp.raise_for_exception_adu(response_error_adu)
 
-    expected_response_size = \
+    expected_response_size = (
         tcp.expected_response_pdu_size_from_request_pdu(adu[7:]) + 7
+    )
     response_remainder = await reader.readexactly(
-        expected_response_size - exception_adu_size)
+        expected_response_size - exception_adu_size
+    )
 
     return tcp.parse_response_adu(response_error_adu + response_remainder, adu)
 
@@ -117,12 +119,14 @@ async def send_rtu_message(adu, reader, writer):
     # Check exception ADU (which is shorter than all other responses) first.
     exception_adu_size = 5
     response_error_adu = await reader.readexactly(exception_adu_size)
-    rtu.raise_for_exception_adu(response_error_adu)   
+    rtu.raise_for_exception_adu(response_error_adu)
 
-    expected_response_size = \
+    expected_response_size = (
         rtu.expected_response_pdu_size_from_request_pdu(adu[1:-2]) + 3
+    )
     response_remainder = await reader.readexactly(
-        expected_response_size - exception_adu_size)
+        expected_response_size - exception_adu_size
+    )
 
     return rtu.parse_response_adu(response_error_adu + response_remainder, adu)
 
@@ -231,13 +235,21 @@ def test_load_config(text, parser, suffix):
 @pytest.mark.parametrize(
     "message, expected, store",
     [
-        (rtu.read_holding_registers(1, 1, 4), [10, 20, 30, 40], {1: 10, 2: 20, 3: 30, 4: 40}),
-        (rtu.read_coils(1, 10, 5), [1, 0, 1, 1, 0], {10: 1, 11: 0, 12: 1, 13: 1, 14: 0}),
+        (
+            rtu.read_holding_registers(1, 1, 4),
+            [10, 20, 30, 40],
+            {1: 10, 2: 20, 3: 30, 4: 40},
+        ),
+        (
+            rtu.read_coils(1, 10, 5),
+            [1, 0, 1, 1, 0],
+            {10: 1, 11: 0, 12: 1, 13: 1, 14: 0},
+        ),
         (rtu.read_discrete_inputs(1, 4, 3), [1, 0, 1], {4: 1, 5: 0, 6: 1}),
-    ]
+    ],
 )
 @pytest.mark.asyncio
-@pytest.mark.skipif(sys.platform != 'linux', reason="not a linux OS")
+@pytest.mark.skipif(sys.platform != "linux", reason="not a linux OS")
 async def test_modbus_rtu_read(modbus_rtu, message, expected, store):
     assert not modbus_rtu.is_open
 
@@ -271,10 +283,10 @@ async def test_modbus_rtu_read(modbus_rtu, message, expected, store):
     [
         (rtu.write_single_coil(1, 3, 1), 1, {3: 1}),
         (rtu.write_single_coil(1, 2, 0), 0, {2: 0}),
-    ]
+    ],
 )
 @pytest.mark.asyncio
-@pytest.mark.skipif(sys.platform != 'linux', reason="not a linux OS")
+@pytest.mark.skipif(sys.platform != "linux", reason="not a linux OS")
 async def test_modbus_rtu_write(modbus_rtu, message, expected, expected_store):
     assert not modbus_rtu.is_open
 
@@ -313,10 +325,18 @@ async def test_modbus_rtu_write(modbus_rtu, message, expected, expected_store):
 @pytest.mark.parametrize(
     "message, expected, store",
     [
-        (tcp.read_holding_registers(1, 1, 4), [10, 20, 30, 40], {1: 10, 2: 20, 3: 30, 4: 40}),
-        (tcp.read_coils(1, 10, 5), [1, 0, 1, 1, 0], {10: 1, 11: 0, 12: 1, 13: 1, 14: 0}),
+        (
+            tcp.read_holding_registers(1, 1, 4),
+            [10, 20, 30, 40],
+            {1: 10, 2: 20, 3: 30, 4: 40},
+        ),
+        (
+            tcp.read_coils(1, 10, 5),
+            [1, 0, 1, 1, 0],
+            {10: 1, 11: 0, 12: 1, 13: 1, 14: 0},
+        ),
         (tcp.read_discrete_inputs(1, 4, 3), [1, 0, 1], {4: 1, 5: 0, 6: 1}),
-    ]
+    ],
 )
 @pytest.mark.asyncio
 async def test_modbus_tcp_read(modbus_tcp, message, expected, store):
@@ -352,7 +372,7 @@ async def test_modbus_tcp_read(modbus_tcp, message, expected, store):
     [
         (tcp.write_single_coil(1, 3, 1), 1, {3: 1}),
         (tcp.write_single_coil(1, 2, 0), 0, {2: 0}),
-    ]
+    ],
 )
 @pytest.mark.asyncio
 async def test_modbus_tcp_write(modbus_tcp, message, expected, expected_store):
