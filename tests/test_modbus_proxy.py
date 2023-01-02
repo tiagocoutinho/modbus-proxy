@@ -8,6 +8,7 @@
 """Tests for `modbus_proxy` package."""
 
 import asyncio
+import contextlib
 import json
 import os
 import sys
@@ -92,8 +93,14 @@ class Ready(asyncio.Event):
         super().set()
 
 
+@contextlib.asynccontextmanager
 async def open_connection(modbus_tcp):
-    return await asyncio.open_connection(*modbus_tcp.server_address)
+    reader, writer = await asyncio.open_connection(*modbus_tcp.server_address)
+    try:
+        yield reader, writer
+    finally:
+        writer.close()
+        await writer.wait_closed()
 
 
 async def send_tcp_message(adu, reader, writer):
@@ -132,34 +139,22 @@ async def send_rtu_message(adu, reader, writer):
 
 
 async def make_rtu_request(modbus, message, expected):
-    reader, writer = await open_connection(modbus)
-    try:
+    async with open_connection(modbus) as (reader, writer):
         response = await make_rtu_request(message, reader, writer)
         assert response == expected
-    finally:
-        writer.close()
-        await writer.wait_closed()
 
 
 async def make_request(modbus, message, expected):
-    reader, writer = await open_connection(modbus)
-    try:
+   async with open_connection(modbus) as (reader, writer):
         response = await send_tcp_message(message, reader, writer)
         assert response == expected
-    finally:
-        writer.close()
-        await writer.wait_closed()
 
 
 async def make_multiple_requests(modbus, messages, expected):
-    reader, writer = await open_connection(modbus)
-    try:
+    async with open_connection(modbus) as (reader, writer):
         for message, expect in zip(messages, expected):
             response = await send_tcp_message(message, reader, writer)
             assert response == expect
-    finally:
-        writer.close()
-        await writer.wait_closed()
 
 
 @pytest.mark.parametrize(
@@ -255,27 +250,23 @@ async def test_modbus_rtu_read(modbus_rtu, message, expected, store):
 
     modbus_rtu.device.store = store
 
-    first_reader, first_writer = await open_connection(modbus_rtu)
-    assert await send_rtu_message(message, first_reader, first_writer) == expected
+    async with open_connection(modbus_rtu) as (first_reader, first_writer):
+        assert await send_rtu_message(message, first_reader, first_writer) == expected
 
-    assert modbus_rtu.is_open
+        assert modbus_rtu.is_open
 
-    # Don't make any request
-    _, writer = await open_connection(modbus_rtu)
-    writer.close()
-    await writer.wait_closed()
+        # Don't make any request
+        async with open_connection(modbus_rtu):
+            pass
 
-    assert await send_rtu_message(message, first_reader, first_writer) == expected
+        assert await send_rtu_message(message, first_reader, first_writer) == expected
 
-    # Don't wait for answer
-    _, writer = await open_connection(modbus_rtu)
+        # Don't wait for answer
+        async with open_connection(modbus_rtu) as (_, writer):
+            writer.write(message)
+            await writer.drain()
 
-    writer.write(message)
-    await writer.drain()
-    writer.close()
-    await writer.wait_closed()
-
-    assert await send_rtu_message(message, first_reader, first_writer) == expected
+        assert await send_rtu_message(message, first_reader, first_writer) == expected
 
 
 @pytest.mark.parametrize(
@@ -292,34 +283,29 @@ async def test_modbus_rtu_write(modbus_rtu, message, expected, expected_store):
 
     modbus_rtu.device.store = {}
 
-    first_reader, first_writer = await open_connection(modbus_rtu)
-    assert await send_rtu_message(message, first_reader, first_writer) == expected
-    assert modbus_rtu.device.store == expected_store
+    async with open_connection(modbus_rtu) as (first_reader, first_writer):
+        assert await send_rtu_message(message, first_reader, first_writer) == expected
+        assert modbus_rtu.device.store == expected_store
 
-    assert modbus_rtu.is_open
+        assert modbus_rtu.is_open
 
-    # Don't make any request
-    modbus_rtu.device.store = {}
+        # Don't make any request
+        modbus_rtu.device.store = {}
 
-    _, writer = await open_connection(modbus_rtu)
-    writer.close()
-    await writer.wait_closed()
+        async with open_connection(modbus_rtu):
+            pass
 
-    assert await send_rtu_message(message, first_reader, first_writer) == expected
-    assert modbus_rtu.device.store == expected_store
+        assert await send_rtu_message(message, first_reader, first_writer) == expected
+        assert modbus_rtu.device.store == expected_store
 
-    # Don't wait for answer
-    modbus_rtu.device.store = {}
-    _, writer = await open_connection(modbus_rtu)
+        # Don't wait for answer
+        async with open_connection(modbus_rtu) as (_, writer):
+            writer.write(message)
+            await writer.drain()
 
-    writer.write(message)
-    await writer.drain()
-    writer.close()
-    await writer.wait_closed()
-
-    modbus_rtu.device.store = {}
-    assert await send_rtu_message(message, first_reader, first_writer) == expected
-    assert modbus_rtu.device.store == expected_store
+        modbus_rtu.device.store = {}
+        assert await send_rtu_message(message, first_reader, first_writer) == expected
+        assert modbus_rtu.device.store == expected_store
 
 
 @pytest.mark.parametrize(
@@ -344,27 +330,23 @@ async def test_modbus_tcp_read(modbus_tcp, message, expected, store):
 
     modbus_tcp.device.store = store
 
-    first_reader, first_writer = await open_connection(modbus_tcp)
-    assert await send_tcp_message(message, first_reader, first_writer) == expected
+    async with open_connection(modbus_tcp) as (first_reader, first_writer):
+        assert await send_tcp_message(message, first_reader, first_writer) == expected
 
-    assert modbus_tcp.is_open
+        assert modbus_tcp.is_open
 
-    # Don't make any request
-    _, writer = await open_connection(modbus_tcp)
-    writer.close()
-    await writer.wait_closed()
+        # Don't make any request
+        async with open_connection(modbus_tcp):
+            pass
 
-    assert await send_tcp_message(message, first_reader, first_writer) == expected
+        assert await send_tcp_message(message, first_reader, first_writer) == expected
 
-    # Don't wait for answer
-    _, writer = await open_connection(modbus_tcp)
+        # Don't wait for answer
+        async with open_connection(modbus_tcp) as (_, writer):
+            writer.write(message)
+            await writer.drain()
 
-    writer.write(message)
-    await writer.drain()
-    writer.close()
-    await writer.wait_closed()
-
-    assert await send_tcp_message(message, first_reader, first_writer) == expected
+        assert await send_tcp_message(message, first_reader, first_writer) == expected
 
 
 @pytest.mark.parametrize(
@@ -380,34 +362,30 @@ async def test_modbus_tcp_write(modbus_tcp, message, expected, expected_store):
 
     modbus_tcp.device.store = {}
 
-    first_reader, first_writer = await open_connection(modbus_tcp)
-    assert await send_tcp_message(message, first_reader, first_writer) == expected
-    assert modbus_tcp.device.store == expected_store
+    async with open_connection(modbus_tcp) as (first_reader, first_writer):
+        assert await send_tcp_message(message, first_reader, first_writer) == expected
+        assert modbus_tcp.device.store == expected_store
 
-    assert modbus_tcp.is_open
+        assert modbus_tcp.is_open
 
-    # Don't make any request
-    modbus_tcp.device.store = {}
+        # Don't make any request
+        modbus_tcp.device.store = {}
 
-    _, writer = await open_connection(modbus_tcp)
-    writer.close()
-    await writer.wait_closed()
+        async with open_connection(modbus_tcp):
+            pass
 
-    assert await send_tcp_message(message, first_reader, first_writer) == expected
-    assert modbus_tcp.device.store == expected_store
+        assert await send_tcp_message(message, first_reader, first_writer) == expected
+        assert modbus_tcp.device.store == expected_store
 
-    # Don't wait for answer
-    modbus_tcp.device.store = {}
-    _, writer = await open_connection(modbus_tcp)
+        # Don't wait for answer
+        modbus_tcp.device.store = {}
+        async with open_connection(modbus_tcp) as (_, writer):
+            writer.write(message)
+            await writer.drain()
 
-    writer.write(message)
-    await writer.drain()
-    writer.close()
-    await writer.wait_closed()
-
-    modbus_tcp.device.store = {}
-    assert await send_tcp_message(message, first_reader, first_writer) == expected
-    assert modbus_tcp.device.store == expected_store
+        modbus_tcp.device.store = {}
+        assert await send_tcp_message(message, first_reader, first_writer) == expected
+        assert modbus_tcp.device.store == expected_store
 
 
 @pytest.mark.asyncio
@@ -440,17 +418,14 @@ async def test_concurrent_clients_with_misbihaved(modbus_tcp):
     async def misbihaved(n):
         for i in range(n):
             # Don't make any request
-            _, writer = await open_connection(modbus_tcp)
-            writer.close()
-            await writer.wait_closed()
+            async with open_connection(modbus_tcp):
+                pass
             await make_request(modbus_tcp, m1, e1)
 
             # Don't wait for answer
-            _, writer = await open_connection(modbus_tcp)
-            writer.write(m2)
-            await writer.drain()
-            writer.close()
-            await writer.wait_closed()
+            async with open_connection(modbus_tcp) as (_, writer):
+                writer.write(m2)
+                await writer.drain()
 
     task3 = asyncio.create_task(misbihaved(10))
     await task1
