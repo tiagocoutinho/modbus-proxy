@@ -227,22 +227,29 @@ def test_load_config(text, parser, suffix):
     assert parser(text) == config
 
 
-@pytest.mark.parametrize(
-    "message, expected, store",
-    [
-        (
-            rtu.read_holding_registers(1, 1, 4),
-            [10, 20, 30, 40],
-            {1: 10, 2: 20, 3: 30, 4: 40},
-        ),
-        (
-            rtu.read_coils(1, 10, 5),
-            [1, 0, 1, 1, 0],
-            {10: 1, 11: 0, 12: 1, 13: 1, 14: 0},
-        ),
-        (rtu.read_discrete_inputs(1, 4, 3), [1, 0, 1], {4: 1, 5: 0, 6: 1}),
-    ],
-)
+rtu_reads = [
+    pytest.param(
+        rtu.read_holding_registers(1, 1, 4),
+        [10, 20, 30, 40],
+        {1: 10, 2: 20, 3: 30, 4: 40},
+        id="read_holding_registers",
+    ),
+    pytest.param(
+        rtu.read_coils(1, 10, 5),
+        [1, 0, 1, 1, 0],
+        {10: 1, 11: 0, 12: 1, 13: 1, 14: 0},
+        id="read_coils",
+    ),
+    pytest.param(
+        rtu.read_discrete_inputs(1, 4, 3),
+        [1, 0, 1],
+        {4: 1, 5: 0, 6: 1},
+        id="read_discrete_inputs",
+    ),
+]
+
+
+@pytest.mark.parametrize("message, expected, store", rtu_reads)
 @pytest.mark.asyncio
 @pytest.mark.skipif(sys.platform != "linux", reason="not a linux OS")
 async def test_modbus_rtu_read(modbus_rtu, message, expected, store):
@@ -269,13 +276,13 @@ async def test_modbus_rtu_read(modbus_rtu, message, expected, store):
         assert await send_rtu_message(message, first_reader, first_writer) == expected
 
 
-@pytest.mark.parametrize(
-    "message, expected, expected_store",
-    [
-        (rtu.write_single_coil(1, 3, 1), 1, {3: 1}),
-        (rtu.write_single_coil(1, 2, 0), 0, {2: 0}),
-    ],
-)
+rtu_writes = [
+    pytest.param(rtu.write_single_coil(1, 3, 1), 1, {3: 1}, id="write_single_coil_1"),
+    pytest.param(rtu.write_single_coil(1, 2, 0), 0, {2: 0}, id="write_single_coil_2"),
+]
+
+
+@pytest.mark.parametrize("message, expected, expected_store", rtu_writes)
 @pytest.mark.asyncio
 @pytest.mark.skipif(sys.platform != "linux", reason="not a linux OS")
 async def test_modbus_rtu_write(modbus_rtu, message, expected, expected_store):
@@ -308,22 +315,29 @@ async def test_modbus_rtu_write(modbus_rtu, message, expected, expected_store):
         assert modbus_rtu.device.store == expected_store
 
 
-@pytest.mark.parametrize(
-    "message, expected, store",
-    [
-        (
-            tcp.read_holding_registers(1, 1, 4),
-            [10, 20, 30, 40],
-            {1: 10, 2: 20, 3: 30, 4: 40},
-        ),
-        (
-            tcp.read_coils(1, 10, 5),
-            [1, 0, 1, 1, 0],
-            {10: 1, 11: 0, 12: 1, 13: 1, 14: 0},
-        ),
-        (tcp.read_discrete_inputs(1, 4, 3), [1, 0, 1], {4: 1, 5: 0, 6: 1}),
-    ],
-)
+tcp_reads = [
+    pytest.param(
+        tcp.read_holding_registers(1, 1, 4),
+        [10, 20, 30, 40],
+        {1: 10, 2: 20, 3: 30, 4: 40},
+        id="read_holding_registers",
+    ),
+    pytest.param(
+        tcp.read_coils(1, 10, 5),
+        [1, 0, 1, 1, 0],
+        {10: 1, 11: 0, 12: 1, 13: 1, 14: 0},
+        id="read_coils",
+    ),
+    pytest.param(
+        tcp.read_discrete_inputs(1, 4, 3),
+        [1, 0, 1],
+        {4: 1, 5: 0, 6: 1},
+        id="read_discrete_inputs",
+    ),
+]
+
+
+@pytest.mark.parametrize("message, expected, store", tcp_reads)
 @pytest.mark.asyncio
 async def test_modbus_tcp_read(modbus_tcp, message, expected, store):
     assert not modbus_tcp.is_open
@@ -349,13 +363,13 @@ async def test_modbus_tcp_read(modbus_tcp, message, expected, store):
         assert await send_tcp_message(message, first_reader, first_writer) == expected
 
 
-@pytest.mark.parametrize(
-    "message, expected, expected_store",
-    [
-        (tcp.write_single_coil(1, 3, 1), 1, {3: 1}),
-        (tcp.write_single_coil(1, 2, 0), 0, {2: 0}),
-    ],
-)
+tcp_writes = [
+    pytest.param(tcp.write_single_coil(1, 3, 1), 1, {3: 1}, id="write_single_coil_1"),
+    pytest.param(tcp.write_single_coil(1, 2, 0), 0, {2: 0}, id="write_single_coil_2"),
+]
+
+
+@pytest.mark.parametrize("message, expected, expected_store", tcp_writes)
 @pytest.mark.asyncio
 async def test_modbus_tcp_write(modbus_tcp, message, expected, expected_store):
     assert not modbus_tcp.is_open
