@@ -65,7 +65,7 @@ async def modbus_rtu(modbus_rtu_device):
         yield modbus
 
 
-def create_tcp_server(host="127.0.0.0", port=0):
+def create_tcp_server(host="127.0.0.1", port=0):
     server = tcp.get_server(socketserver.TCPServer, (host, port), tcp.RequestHandler)
     server.allow_reuse_address = True
     server.store = collections.defaultdict(int)
