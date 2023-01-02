@@ -7,9 +7,10 @@
 
 """Tests for `modbus_proxy` package."""
 
-import os
-import json
 import asyncio
+import json
+import os
+import sys
 from collections import namedtuple
 from urllib.parse import urlparse
 from tempfile import NamedTemporaryFile
@@ -236,7 +237,7 @@ def test_load_config(text, parser, suffix):
     ]
 )
 @pytest.mark.asyncio
-@pytest.mark.skipif(os.name != 'posix', reason="not a posix OS")
+@pytest.mark.skipif(sys.platform != 'linux', reason="not a linux OS")
 async def test_modbus_rtu_read(modbus_rtu, message, expected, store):
     assert not modbus_rtu.is_open
 
@@ -273,7 +274,7 @@ async def test_modbus_rtu_read(modbus_rtu, message, expected, store):
     ]
 )
 @pytest.mark.asyncio
-@pytest.mark.skipif(os.name != 'posix', reason="not a posix OS")
+@pytest.mark.skipif(sys.platform != 'linux', reason="not a linux OS")
 async def test_modbus_rtu_write(modbus_rtu, message, expected, expected_store):
     assert not modbus_rtu.is_open
 
