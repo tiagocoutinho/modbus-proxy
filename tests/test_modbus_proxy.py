@@ -402,15 +402,41 @@ async def test_modbus_tcp_write(modbus_tcp, message, expected, expected_store):
         assert modbus_tcp.device.store == expected_store
 
 
+@pytest.mark.parametrize(
+    "message, expected, store",
+    [
+        (tcp.read_holding_registers(1, 1, 2), [10, 20], {1: 10, 2: 20}),
+        (tcp.read_coils(1, 10, 3), [1, 0, 1], {10: 1, 11: 0, 12: 1}),
+    ],
+    ids=["read_holding_registers", "read_coils"],
+)
 @pytest.mark.asyncio
-async def test_concurrent_clients(modbus_tcp):
-    modbus_tcp.device.store = [None] + list(range(1, 10))
-    message1 = tcp.read_holding_registers(1, 1, 4)
-    message2 = tcp.read_holding_registers(1, 5, 5)
-    task1 = asyncio.create_task(make_request(modbus_tcp, message1, [1, 2, 3, 4]))
-    task2 = asyncio.create_task(make_request(modbus_tcp, message2, [5, 6, 7, 8, 9]))
-    await task1
-    await task2
+async def test_run(modbus_tcp_device, message, expected, store):
+    modbus_tcp_device.store = store
+    addr = "{}:{}".format(*modbus_tcp_device.server_address)
+    args = ["--modbus", addr, "--bind", "127.0.0.1:0"]
+    ready = Ready()
+    task = asyncio.create_task(run(args, ready))
+    try:
+        await ready.wait()
+        modbus = ready.data[0]
+        await make_request(modbus, message, expected)
+    finally:
+        for bridge in ready.data:
+            await bridge.stop()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+
+@pytest.mark.asyncio
+async def test_device_not_connected(modbus_tcp):
+    modbus_tcp.device.server_close()
+
+    message = tcp.read_holding_registers(1, 1, 4)
+    with pytest.raises(asyncio.IncompleteReadError):
+        await make_request(modbus_tcp, message, None)
 
 
 @pytest.mark.asyncio
@@ -447,38 +473,12 @@ async def test_concurrent_clients_with_misbihaved(modbus_tcp):
     await task3
 
 
-@pytest.mark.parametrize(
-    "message, expected, store",
-    [
-        (tcp.read_holding_registers(1, 1, 2), [10, 20], {1: 10, 2: 20}),
-        (tcp.read_coils(1, 10, 3), [1, 0, 1], {10: 1, 11: 0, 12: 1}),
-    ],
-    ids=["read_holding_registers", "read_coils"],
-)
 @pytest.mark.asyncio
-async def test_run(modbus_tcp_device, message, expected, store):
-    modbus_tcp_device.store = store
-    addr = "{}:{}".format(*modbus_tcp_device.server_address)
-    args = ["--modbus", addr, "--bind", "127.0.0.1:0"]
-    ready = Ready()
-    task = asyncio.create_task(run(args, ready))
-    try:
-        await ready.wait()
-        modbus = ready.data[0]
-        await make_request(modbus, message, expected)
-    finally:
-        for bridge in ready.data:
-            await bridge.stop()
-        try:
-            await task
-        except asyncio.CancelledError:
-            pass
-
-
-@pytest.mark.asyncio
-async def test_device_not_connected(modbus_tcp):
-    modbus_tcp.device.server_close()
-
-    message = tcp.read_holding_registers(1, 1, 4)
-    with pytest.raises(asyncio.IncompleteReadError):
-        await make_request(modbus_tcp, message, None)
+async def test_concurrent_clients(modbus_tcp):
+    modbus_tcp.device.store = [None] + list(range(1, 10))
+    message1 = tcp.read_holding_registers(1, 1, 4)
+    message2 = tcp.read_holding_registers(1, 5, 5)
+    task1 = asyncio.create_task(make_request(modbus_tcp, message1, [1, 2, 3, 4]))
+    task2 = asyncio.create_task(make_request(modbus_tcp, message2, [5, 6, 7, 8, 9]))
+    await task1
+    await task2
