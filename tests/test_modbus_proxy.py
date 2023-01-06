@@ -440,6 +440,17 @@ async def test_device_not_connected(modbus_tcp):
 
 
 @pytest.mark.asyncio
+async def test_concurrent_clients(modbus_tcp):
+    modbus_tcp.device.store = [None] + list(range(1, 10))
+    message1 = tcp.read_holding_registers(1, 1, 4)
+    message2 = tcp.read_holding_registers(1, 5, 5)
+    task1 = asyncio.create_task(make_request(modbus_tcp, message1, [1, 2, 3, 4]))
+    task2 = asyncio.create_task(make_request(modbus_tcp, message2, [5, 6, 7, 8, 9]))
+    await task1
+    await task2
+
+
+@pytest.mark.asyncio
 async def test_concurrent_clients_with_misbihaved(modbus_tcp):
     modbus_tcp.device.store = [None] + list(range(1, 10))
     m1 = tcp.read_holding_registers(1, 1, 4)
@@ -471,14 +482,3 @@ async def test_concurrent_clients_with_misbihaved(modbus_tcp):
     await task1
     await task2
     await task3
-
-
-@pytest.mark.asyncio
-async def test_concurrent_clients(modbus_tcp):
-    modbus_tcp.device.store = [None] + list(range(1, 10))
-    message1 = tcp.read_holding_registers(1, 1, 4)
-    message2 = tcp.read_holding_registers(1, 5, 5)
-    task1 = asyncio.create_task(make_request(modbus_tcp, message1, [1, 2, 3, 4]))
-    task2 = asyncio.create_task(make_request(modbus_tcp, message2, [5, 6, 7, 8, 9]))
-    await task1
-    await task2
