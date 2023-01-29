@@ -132,6 +132,7 @@ class ModBus(Connection):
         self.modbus_port = url.port
         self.timeout = modbus.get("timeout", None)
         self.connection_time = modbus.get("connection_time", 0)
+        self.unit_id_remapping = config.get("unit_id_remapping", None)
         self.server = None
         self.lock = asyncio.Lock()
 
@@ -171,13 +172,30 @@ class ModBus(Connection):
         await self._write(data)
         return await self._read()
 
+    def _transform_request(self, request):
+        request_unit_id = request[6]
+
+        if self.unit_id_remapping is None:
+            return request
+
+        if self.unit_id_remapping[request_unit_id] is None:
+            return request
+
+        remapped_unit_id = self.unit_id_remapping[request_unit_id]
+
+        self.log.info("remapping unit ID %s to %s", request_unit_id, remapped_unit_id)
+
+        request = request[:6] + bytearray([remapped_unit_id]) + request[7:]
+
+        return request
+
     async def handle_client(self, reader, writer):
         async with Client(reader, writer) as client:
             while True:
                 request = await client.read()
                 if not request:
                     break
-                reply = await self.write_read(request)
+                reply = await self.write_read(self._transform_request(request))
                 if not reply:
                     break
                 result = await client.write(reply)
