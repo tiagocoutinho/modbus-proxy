@@ -183,7 +183,7 @@ class ModBus(Connection):
 
         remapped_unit_id = self.unit_id_remapping[request_unit_id]
 
-        self.log.info("remapping unit ID %s to %s", request_unit_id, remapped_unit_id)
+        self.log.debug("remapping unit ID %s to %s", request_unit_id, remapped_unit_id)
 
         request = request[:6] + bytearray([remapped_unit_id]) + request[7:]
 
