@@ -178,7 +178,7 @@ class ModBus(Connection):
         if self.unit_id_remapping is None:
             return request
 
-        if self.unit_id_remapping[request_unit_id] is None:
+        if request_unit_id not in self.unit_id_remapping:
             return request
 
         remapped_unit_id = self.unit_id_remapping[request_unit_id]
