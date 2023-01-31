@@ -178,8 +178,18 @@ class ModBus(Connection):
         if uid != new_uid:
             request = bytearray(request)
             request[6] = new_uid
-            self.log.debug("remapping unit ID %s to %s", uid, new_uid)
+            self.log.debug("remapping unit ID %s to %s in request", uid, new_uid)
         return request
+
+    def _transform_reply(self, reply):
+        uid = reply[6]
+        inverse_unit_id_map = {v: k for k, v in self.unit_id_remapping.items()}
+        new_uid = inverse_unit_id_map.setdefault(uid, uid)
+        if uid != new_uid:
+            reply = bytearray(reply)
+            reply[6] = new_uid
+            self.log.debug("remapping unit ID %s to %s in reply", uid, new_uid)
+        return reply
 
     async def handle_client(self, reader, writer):
         async with Client(reader, writer) as client:
@@ -190,7 +200,7 @@ class ModBus(Connection):
                 reply = await self.write_read(self._transform_request(request))
                 if not reply:
                     break
-                result = await client.write(reply)
+                result = await client.write(self._transform_reply(reply))
                 if not result:
                     break
 

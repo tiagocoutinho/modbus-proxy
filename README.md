@@ -99,6 +99,8 @@ devices:
 The above forwards requests to unit ID 1 to your modbus-proxy server to unit ID 0 on the
 actual modbus server.
 
+Note that **the reverse also applies**: if you forward unit ID 1 to unit ID 0, **all** responses coming from unit 0 will look as if they are coming from 1, so this may pose problems if you want to use unit ID 0 for some clients and unit ID 1 for others (use unit ID 1 for all in that case).
+
 ## Running the examples
 
 To run the examples you will need to have
