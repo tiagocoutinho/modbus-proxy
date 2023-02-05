@@ -18,6 +18,15 @@ REQ2 = b"m\xf5\x00\x00\x00\x06\x01\x03\x00\x02\x00\x03"
 REP2 = b"m\xf5\x00\x00\x00\x09\x01\x03\x08\x00\x02\x00\x03\x00\x04"
 
 
+# read_holding_registers(unit=1, start=2, size=3)
+#       |tid | tcp   | size  |uni|cod|s .addr|nb. reg|
+REQ3_ORIGINAL = b"m\xf5\x00\x00\x00\x06\xFF\x03\x00\x02\x00\x03"
+REQ3_MODIFIED = b"m\xf5\x00\x00\x00\x06\xFE\x03\x00\x02\x00\x03"
+#       |tid | tcp   | size  |uni|cod|len|   2   |   3   |   4   |
+REP3_ORIGINAL = b"m\xf5\x00\x00\x00\x09\xFE\x03\x08\x00\x02\x00\x03\x00\x04"
+REP3_MODIFIED = b"m\xf5\x00\x00\x00\x09\xFF\x03\x08\x00\x02\x00\x03\x00\x04"
+
+
 @pytest.fixture
 async def modbus_device():
     async def cb(r, w):
@@ -29,6 +38,9 @@ async def modbus_device():
                 reply = REP
             elif data == REQ2:
                 reply = REP2
+            elif data == REQ3_MODIFIED:
+                reply = REP3_ORIGINAL
+
             w.write(reply)
             await w.drain()
 
@@ -45,6 +57,7 @@ def modbus_config(modbus_device):
     return {
         "modbus": {"url": "{}:{}".format(*modbus_device.address)},
         "listen": {"bind": "127.0.0.1:0"},
+        "unit_id_remapping": {255: 254},
     }
 
 

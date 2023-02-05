@@ -20,7 +20,7 @@ import pytest
 
 from modbus_proxy import parse_url, parse_args, load_config, run
 
-from .conftest import REQ, REP, REQ2, REP2
+from .conftest import REQ, REP, REQ2, REP2, REQ3_ORIGINAL, REP3_MODIFIED
 
 
 Args = namedtuple(
@@ -155,8 +155,9 @@ async def make_requests(modbus, requests):
     [
         (REQ, REP),
         (REQ2, REP2),
+        (REQ3_ORIGINAL, REP3_MODIFIED),
     ],
-    ids=["req1", "req2"],
+    ids=["req1", "req2", "req3"],
 )
 @pytest.mark.asyncio
 async def test_modbus(modbus, req, rep):
