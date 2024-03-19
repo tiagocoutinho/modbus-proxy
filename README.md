@@ -45,6 +45,8 @@ devices:
     connection_time: 0.1       # delay after connection (s) (optional, default: 0)
   listen:
     bind: 0:9000               # listening address (mandatory)
+  unit_id_remapping:           # remap/forward unit IDs (optional, empty by default)
+    1: 0
 ```
 
 Assuming you saved this file as `modbus-config.yml`, start the server with:
@@ -81,6 +83,23 @@ modbus-proxy -b tcp://0:9000 --modbus tcp://plc1.acme.org:502
 
 (hint: run `modbus-proxy --help` to see all available options)
 
+### Forwarding Unit Identifiers
+
+You can also forward one unit ID to another whilst proxying. This is handy if the target
+modbus server has a unit on an index that is not supported by one of your clients.
+
+```yaml
+devices:
+- modbus: ... # see above.
+  listen: ... # see above.
+  unit_id_remapping:
+    1: 0
+```
+
+The above forwards requests to unit ID 1 to your modbus-proxy server to unit ID 0 on the
+actual modbus server.
+
+Note that **the reverse also applies**: if you forward unit ID 1 to unit ID 0, **all** responses coming from unit 0 will look as if they are coming from 1, so this may pose problems if you want to use unit ID 0 for some clients and unit ID 1 for others (use unit ID 1 for all in that case).
 
 ## Running the examples
 
