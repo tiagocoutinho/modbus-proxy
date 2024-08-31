@@ -1,6 +1,6 @@
 import asyncio
 
-import pytest
+import pytest_asyncio
 
 from modbus_proxy import ModBus
 
@@ -27,7 +27,7 @@ REP3_ORIGINAL = b"m\xf5\x00\x00\x00\x09\xFE\x03\x08\x00\x02\x00\x03\x00\x04"
 REP3_MODIFIED = b"m\xf5\x00\x00\x00\x09\xFF\x03\x08\x00\x02\x00\x03\x00\x04"
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def modbus_device():
     async def cb(r, w):
         while True:
@@ -61,7 +61,7 @@ def modbus_config(modbus_device):
     }
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def modbus(modbus_device):
     cfg = modbus_config(modbus_device)
     modbus = ModBus(cfg)
@@ -70,3 +70,4 @@ async def modbus(modbus_device):
     modbus.cfg = cfg
     async with modbus:
         yield modbus
+    modbus_device.close()
