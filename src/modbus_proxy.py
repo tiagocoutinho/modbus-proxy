@@ -5,7 +5,7 @@
 # Copyright (c) 2020-2021 Tiago Coutinho
 # Distributed under the GPLv3 license. See LICENSE for more info.
 
-
+import sys
 import asyncio
 import pathlib
 import argparse
@@ -227,7 +227,10 @@ def load_config(file_name):
     file_name = pathlib.Path(file_name)
     ext = file_name.suffix
     if ext.endswith("toml"):
-        from toml import load
+        if sys.version_info >= (3, 11):
+            from tomllib import load
+        else:
+            from toml import load
     elif ext.endswith("yml") or ext.endswith("yaml"):
         import yaml
 
