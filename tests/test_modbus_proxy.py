@@ -24,7 +24,7 @@ from .conftest import REQ, REP, REQ2, REP2, REQ3_ORIGINAL, REP3_MODIFIED
 
 
 Args = namedtuple(
-    "Args", "config_file bind modbus modbus_connection_time timeout log_config_file"
+    "Args", "config_file bind modbus modbus_connection_time timeout"
 )
 
 
@@ -102,8 +102,8 @@ def test_parse_url(url, expected):
 @pytest.mark.parametrize(
     "args, expected",
     [
-        (["-c", "conf.yml"], Args("conf.yml", None, None, 0, 10, None)),
-        (["--config-file", "conf.yml"], Args("conf.yml", None, None, 0, 10, None)),
+        (["-c", "conf.yml"], Args("conf.yml", None, None, 0, 10)),
+        (["--config-file", "conf.yml"], Args("conf.yml", None, None, 0, 10)),
     ],
     ids=["-c", "--config-file"],
 )
@@ -114,7 +114,6 @@ def test_parse_args(args, expected):
     assert result.modbus == expected.modbus
     assert result.modbus_connection_time == expected.modbus_connection_time
     assert result.timeout == expected.timeout
-    assert result.log_config_file == expected.log_config_file
 
 
 @pytest.mark.parametrize(

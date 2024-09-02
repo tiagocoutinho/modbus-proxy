@@ -170,6 +170,7 @@ First, build the docker image with:
 $ docker build -t modbus-proxy .
 ```
 
+
 To bridge a single modbus device without needing a configuration file is
 straight forward:
 
@@ -196,8 +197,11 @@ devices:
 Here is an example of how to run the container:
 
 ```bash
-docker run -p 5020:502 -v $PWD/conf.yml:/src/conf.yml modbus-proxy -c /src/conf.yml
+docker run -p 5020:502 -v $PWD/conf.yml:/config/modbus-proxy.yml modbus-proxy
 ```
+
+By default the Dockerfile will run `modbus-proxy -c /config/modbus-proxy.yml` so
+if your mounting that volume you don't need to pass any arguments.
 
 Note that for each modbus device you add in the configuration file you need
 to publish the corresponding bind port on the host
