@@ -242,30 +242,16 @@ def load_config(file_name):
         return load(fobj)
 
 
-def prepare_log(config, log_config_file=None):
+def prepare_log(config):
     cfg = config.get("logging")
     if not cfg:
-        if log_config_file:
-            if log_config_file.endswith("ini") or log_config_file.endswith("conf"):
-                logging.config.fileConfig(
-                    log_config_file, disable_existing_loggers=False
-                )
-            else:
-                cfg = load_config(log_config_file)
-        else:
-            cfg = DEFAULT_LOG_CONFIG
+        cfg = DEFAULT_LOG_CONFIG
     if cfg:
         cfg.setdefault("version", 1)
         cfg.setdefault("disable_existing_loggers", False)
         logging.config.dictConfig(cfg)
     warnings.simplefilter("always", DeprecationWarning)
     logging.captureWarnings(True)
-    if log_config_file:
-        warnings.warn(
-            "log-config-file deprecated. Use config-file instead", DeprecationWarning
-        )
-        if "logging" in config:
-            log.warning("log-config-file ignored. Using config file logging")
     return log
 
 
@@ -296,12 +282,6 @@ def parse_args(args=None):
         default=10,
         help="modbus connection and request timeout in seconds",
     )
-    parser.add_argument(
-        "--log-config-file",
-        default=None,
-        type=str,
-        help="log configuration file. By default log to stderr with log level = INFO",
-    )
     options = parser.parse_args(args=args)
 
     if not options.config_file and not options.modbus:
@@ -313,7 +293,7 @@ def create_config(args):
     if args.config_file is None:
         assert args.modbus
     config = load_config(args.config_file) if args.config_file else {}
-    prepare_log(config, args.log_config_file)
+    prepare_log(config)
     log.info("Starting...")
     devices = config.setdefault("devices", [])
     if args.modbus:
