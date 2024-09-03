@@ -1,0 +1,40 @@
+# Sample configuration file for modbus-proxy
+#
+# You can configure multiple proxies for multiple modbus devices.
+#
+# The first proxy configuration provides description for all supported options.
+#
+# Pass this file location as an --config-file option argument, e.g.:
+#    $ modbus-proxy --config-file /etc/modbus-proxy.yaml
+#
+# See also: systemd modbus-proxy.service example how to run it
+#           as a systemd service.
+#
+devices:
+- modbus:                      # First proxy configuration
+    url: plc1.acme.org:502     # modbus connection (the modbus device url)
+    timeout: 10                # communication timeout [s] (optional, default: 10)
+    connection_time: 0.1       # delay after connection [s] (optional, default: 0)
+  listen:                      # listen interface
+                               # (to which url your clients should connect)
+    bind: 0:9000               # listening address (mandatory) [IP:port]
+  unit_id_remapping:           # remap/forward unit IDs (optional, empty by default)
+    1: 0                       # forwards requests to unit ID 1 to your modbus-proxy
+                               # server to unit ID 0 on the actual modbus server.
+                               # Note, that the reverse also applies: if you forward
+                               # unit ID 1 to unit ID 0, all responses coming from
+                               # unit 0 will look as if they are coming from 1,
+                               # so this may pose problems if you want to use
+                               # unit ID 0 for some clients and unit ID 1 for others.
+
+- modbus:                      # Second proxy configuration
+    url: 192.168.1.2:502
+    timeout: 12
+    connection_time: 1.0
+  listen:
+    bind: 0:5503
+
+- modbus:                      # Third proxy configuration
+    url: example.com:502
+  listen:
+    bind: 0:5504
