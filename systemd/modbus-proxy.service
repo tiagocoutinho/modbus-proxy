@@ -1,0 +1,29 @@
+# This file is part of modbus-proxy.
+#
+# Copyright 2022 Damian Wrobel <dwrobel@ertelnet.rybnik.pl>
+#
+# modbus-proxy is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# modbus-proxy is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+# General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with modbus-proxy. If not, see <http://www.gnu.org/licenses/>.
+
+[Unit]
+Description=ModBus TCP proxy
+Documentation=https://github.com/tiagocoutinho/modbus-proxy
+After=network.target
+ConditionPathExists=/etc/modbus-proxy.yaml
+
+[Service]
+Restart=on-failure
+ExecStart=modbus-proxy --config-file /etc/modbus-proxy.yaml
+
+[Install]
+WantedBy=multi-user.target
