@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: modbus-proxy
+  name: modbus-proxy
+  namespace: modbus-proxy
+spec:
+  type: ClusterIP
+  ports:
+    ### modbus proxy to mirror traffic from e.g. Huawei pv
+    - name: modbusproxy
+      port: 502
+      protocol: TCP
+      targetPort: 30502
+      #nodePort: 30502
+  selector:
+    app: modbus-proxy

@@ -1,0 +1,26 @@
+# Sample configuration file for modbus-proxy
+# You can configure multiple proxies for multiple modbus devices.
+# The first proxy configuration provides description for all supported options.
+# Pass this file location as an --config-file option argument, e.g.:
+#    $ modbus-proxy --config-file /etc/modbus-proxy.yaml
+# See also: systemd modbus-proxy.service example how to run it
+#           as a systemd service.
+#
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  labels:
+    app: modbus-proxy
+  name: modbus-proxy-config
+  namespace: modbus-proxy
+data:
+  #Example config
+  config.yaml: |
+    devices:
+    - modbus:                      # First proxy configuration
+        url: modbus.host:502     # modbus connection (the modbus device url)
+        timeout: 10                # communication timeout [s] (optional, default: 10)
+        connection_time: 1       # delay after connection [s] (optional, default: 0)
+      listen:                      # listen interface
+        bind: 0:30502               # listening address (mandatory) [IP:port]
+                                   # (to which url your clients should connect)
