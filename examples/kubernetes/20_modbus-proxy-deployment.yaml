@@ -1,0 +1,42 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: modbus-proxy
+  annotations:
+    # Optional: trigger config reloader: https://github.com/stakater/Reloader
+    reloader.stakater.com/auto: "true"
+  name: modbus-proxy
+  namespace: modbus-proxy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: modbus-proxy
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: modbus-proxy
+    spec:
+      terminationGracePeriodSeconds: 1
+      containers:
+        - args:
+            - -c
+            - /config.yaml
+          image: quay.io/toschneck/modbus-proxy:2024-09-21
+          name: modbus-proxy
+          ports:
+            - name: modbus-outgoing
+              containerPort: 30502
+              protocol: TCP
+          volumeMounts:
+            - mountPath: /config.yaml
+              name: modbus-proxy-config
+              subPath: config.yaml
+      restartPolicy: Always
+      volumes:
+        - configMap:
+            name: modbus-proxy-config
+          name: modbus-proxy-config
