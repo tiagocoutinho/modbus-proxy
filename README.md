@@ -161,7 +161,8 @@ The file names given here are examples, you can choose other names, if you wish.
 
 ## Docker
 
-This project ships with a basic [Dockerfile](./Dockerfile) which you can use
+This project ships with a basic [Dockerfile](
+./Dockerfile) which you can use
 as a base to launch modbus-proxy inside a docker container.
 
 First, build the docker image with:
@@ -293,6 +294,20 @@ root:
   level: DEBUG
 ```
 
+## Kubernetes
+
+Based on the existing [Dockerfile](Dockerfile) an example Kubernetes manifest has been created and is located at [examples/kubernetes](examples/kubernetes).
+
+* `ConfigMap` for modbus-proxy config: [`examples/kubernetes/10_modbus-proxy.configmap.yaml`](examples/kubernetes/10_modbus-proxy.configmap.yaml)
+
+After the adjustment of the configmap, the manifest could get applied to your Kubernetes Cluster:
+```
+# adjust config
+vim examples/kubernetes/10_modbus-proxy.configmap.yaml
+
+# apply to cluster
+kubectl apply -f examples/kubernetes
+```
 
 ## Credits
 
