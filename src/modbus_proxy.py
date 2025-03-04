@@ -91,12 +91,11 @@ class Stream:
             return Result.Ok(result)
         except asyncio.IncompleteReadError as error:
             if n := len(error.partial):
-                log.warning(" after sending partial %d bytes", n)
+                log.warning("error after reading partial %d bytes", n)
             else:
                 log.info("client disconnected")
         except OSError as error:
-            log.inimport pathlib
-from typing import Self
+            log.warning("client error: %r", error)
     async def write_message(self, payload) -> Result:
         try:
             await self.write(payload)
