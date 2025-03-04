@@ -10,10 +10,7 @@ import asyncio
 import collections
 import logging.config
 import pathlib
-from typing import Self
 import urllib.parse
-
-from collections.abc import Buffer
 
 __version__ = "1.0.0"
 
@@ -61,7 +58,7 @@ class Result(collections.namedtuple("Result", "type value")):
     @classmethod
     def Ok(cls, value=None):
         return cls(cls.OK, value)
-    
+
     @classmethod
     def Err(cls, error):
         return cls(cls.ERROR, error)
@@ -98,13 +95,8 @@ class Stream:
             else:
                 log.info("client disconnected")
         except OSError as error:
-            log.info("failed to read: %r", error)
-            return Result.Err(error)
-
-    async def write(self, payload):
-        self.writer.write(payload)
-        await self.writer.drain()        
-
+            log.inimport pathlib
+from typing import Self
     async def write_message(self, payload) -> Result:
         try:
             await self.write(payload)
@@ -125,7 +117,9 @@ class Bridge:
         self.device_port = self.device_url.port
         self.timeout = modbus.get("timeout", None)
         self.connection_time = modbus.get("connection_time", 0)
-        self.unit_id_map = config.get("unit_id_map", config.get("unit_id_remapping", {}))
+        self.unit_id_map = config.get(
+            "unit_id_map", config.get("unit_id_remapping", {})
+        )
         self.unit_id_map_reverse = {v: k for k, v in self.unit_id_map.items()}
         self.device = None
         self.to_device_queue = asyncio.Queue(maxsize=1000)
