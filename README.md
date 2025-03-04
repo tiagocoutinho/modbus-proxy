@@ -238,62 +238,6 @@ logging:
     level: DEBUG
 ```
 
-### `--log-config-file` (deprecated)
-
-Logging configuration file.
-
-If a relative path is given, it is relative to the current working directory.
-
-If a `.conf` or `.ini` file is given, it is passed directly to
-[logging.config.fileConfig()](https://docs.python.org/library/logging.config.html#logging.config.fileConfig) so the file contents must
-obey the
-[Configuration file format](https://docs.python.org/library/logging.config.html#configuration-file-format).
-
-A simple logging configuration (also available at [log.conf](examples/log.conf))
-which mimics the default configuration looks like this:
-
-```toml
-[formatters]
-keys=standard
-
-[handlers]
-keys=console
-
-[loggers]
-keys=root
-
-[formatter_standard]
-format=%(asctime)s %(levelname)8s %(name)s: %(message)s
-
-[handler_console]
-class=StreamHandler
-formatter=standard
-
-[logger_root]
-level=INFO
-handlers=console
-```
-
-A more verbose example logging with a rotating file handler:
-[log-verbose.conf](examples/log-verbose.conf)
-
-The same example above (also available at [log.yml](examples/log.yml)) can be achieved in YAML with:
-
-```yaml
-version: 1
-formatters:
-  standard:
-    format: "%(asctime)s %(levelname)8s %(name)s: %(message)s"
-handlers:
-  console:
-    class: logging.StreamHandler
-    formatter: standard
-root:
-  handlers: ['console']
-  level: DEBUG
-```
-
-
 ## Credits
 
 ### Development Lead
