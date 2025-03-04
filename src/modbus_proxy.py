@@ -2,19 +2,20 @@
 #
 # This file is part of the modbus-proxy project
 #
-# Copyright (c) 2020-2021 Tiago Coutinho
+# Copyright (c) 2025 Tiago Coutinho
 # Distributed under the GPLv3 license. See LICENSE for more info.
 
-import sys
-import asyncio
-import pathlib
 import argparse
-import warnings
-import contextlib
+import asyncio
+import collections
 import logging.config
-from urllib.parse import urlparse
+import pathlib
+from typing import Self
+import urllib.parse
 
-__version__ = "0.8.0"
+from collections.abc import Buffer
+
+__version__ = "1.0.0"
 
 
 DEFAULT_LOG_CONFIG = {
@@ -28,209 +29,190 @@ DEFAULT_LOG_CONFIG = {
     "root": {"handlers": ["console"], "level": "INFO"},
 }
 
-log = logging.getLogger("modbus-proxy")
+
+log: logging.Logger = logging.getLogger("modbus-proxy")
 
 
-def parse_url(url):
+def parse_url(url: str) -> urllib.parse.ParseResult:
     if "://" not in url:
         url = f"tcp://{url}"
-    result = urlparse(url)
+    result = urllib.parse.urlparse(url)
     if not result.hostname:
         url = result.geturl().replace("://", "://0")
-        result = urlparse(url)
+        result = urllib.parse.urlparse(url)
     return result
 
 
-class Connection:
-    def __init__(self, name, reader, writer):
-        self.name = name
+class Result(collections.namedtuple("Result", "type value")):
+    ERROR = 0
+    OK = 1
+
+    """Execution result. Similar to Rust result"""
+
+    def is_ok(self):
+        return self.type == self.OK
+
+    def is_err(self):
+        return self.type == self.ERROR
+
+    def __bool__(self):
+        return self.is_ok()
+
+    @classmethod
+    def Ok(cls, value=None):
+        return cls(cls.OK, value)
+    
+    @classmethod
+    def Err(cls, error):
+        return cls(cls.ERROR, error)
+
+
+class Stream:
+    def __init__(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         self.reader = reader
         self.writer = writer
-        self.log = log.getChild(name)
+        self.remote_address = host, port = self.writer.get_extra_info("peername")
+        self.log = log.getChild(f"{host}:{port}")
+        self.log.info("Connected!")
 
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, exc_type, exc_value, tb):
-        await self.close()
-
-    @property
-    def opened(self):
-        return (
-            self.writer is not None
-            and not self.writer.is_closing()
-            and not self.reader.at_eof()
-        )
-
-    async def close(self):
-        if self.writer is not None:
-            self.log.info("closing connection...")
-            try:
-                self.writer.close()
-                await self.writer.wait_closed()
-            except Exception as error:
-                self.log.info("failed to close: %r", error)
-            else:
-                self.log.info("connection closed")
-            finally:
-                self.reader = None
-                self.writer = None
-
-    async def _write(self, data):
-        self.log.debug("sending %r", data)
-        self.writer.write(data)
-        await self.writer.drain()
-
-    async def write(self, data):
+    async def close(self) -> Result:
         try:
-            await self._write(data)
-        except Exception as error:
-            self.log.error("writting error: %r", error)
-            await self.close()
-            return False
-        return True
+            self.writer.close()
+            await self.writer.wait_closed()
+        except OSError as error:
+            log.info("failed to close: %r", error)
+            return Result.Err(error)
+        return Result.Ok()
 
-    async def _read(self):
-        """Read ModBus TCP message"""
-        # TODO: Handle Modbus RTU and ASCII
-        header = await self.reader.readexactly(6)
-        size = int.from_bytes(header[4:], "big")
-        reply = header + await self.reader.readexactly(size)
-        self.log.debug("received %r", reply)
-        return reply
-
-    async def read(self):
+    async def read_message(self) -> Result:
         try:
-            return await self._read()
+            header = await self.reader.readexactly(6)
+            size = int.from_bytes(header[4:], "big")
+            result = bytearray(6 + size)
+            result[:6] = header
+            result[6:] = await self.reader.readexactly(size)
+            return Result.Ok(result)
         except asyncio.IncompleteReadError as error:
-            if error.partial:
-                self.log.error("reading error: %r", error)
+            if n := len(error.partial):
+                log.warning(" after sending partial %d bytes", n)
             else:
-                self.log.info("client closed connection")
-            await self.close()
-        except Exception as error:
-            self.log.error("reading error: %r", error)
-            await self.close()
+                log.info("client disconnected")
+        except OSError as error:
+            log.info("failed to read: %r", error)
+            return Result.Err(error)
+
+    async def write(self, payload):
+        self.writer.write(payload)
+        await self.writer.drain()        
+
+    async def write_message(self, payload) -> Result:
+        try:
+            await self.write(payload)
+            return Result.Ok()
+        except OSError as error:
+            log.info("failed to write: %r", error)
+            return Result.Err(error)
 
 
-class Client(Connection):
-    def __init__(self, reader, writer):
-        peer = writer.get_extra_info("peername")
-        super().__init__(f"Client({peer[0]}:{peer[1]})", reader, writer)
-        self.log.info("new client connection")
-
-
-class ModBus(Connection):
+class Bridge:
     def __init__(self, config):
-        modbus = config["modbus"]
-        url = parse_url(modbus["url"])
         bind = parse_url(config["listen"]["bind"])
-        super().__init__(f"ModBus({url.hostname}:{url.port})", None, None)
-        self.host = bind.hostname
-        self.port = 502 if bind.port is None else bind.port
-        self.modbus_host = url.hostname
-        self.modbus_port = url.port
+        self.server_host = bind.hostname
+        self.server_port = 502 if bind.port is None else bind.port
+        modbus = config["modbus"]
+        self.device_url = parse_url(modbus["url"])
+        self.device_host = self.device_url.hostname
+        self.device_port = self.device_url.port
         self.timeout = modbus.get("timeout", None)
         self.connection_time = modbus.get("connection_time", 0)
-        self.unit_id_remapping = config.get("unit_id_remapping") or {}
-        self.server = None
-        self.lock = asyncio.Lock()
+        self.unit_id_map = config.get("unit_id_map", config.get("unit_id_remapping", {}))
+        self.unit_id_map_reverse = {v: k for k, v in self.unit_id_map.items()}
+        self.device = None
+        self.to_device_queue = asyncio.Queue(maxsize=1000)
+        self.to_client_queue = asyncio.Queue(maxsize=1000)
 
-    @property
-    def address(self):
-        if self.server is not None:
-            return self.server.sockets[0].getsockname()
-
-    async def open(self):
-        self.log.info("connecting to modbus...")
-        self.reader, self.writer = await asyncio.open_connection(
-            self.modbus_host, self.modbus_port
-        )
-        self.log.info("connected!")
-
-    async def connect(self):
-        if not self.opened:
-            await asyncio.wait_for(self.open(), self.timeout)
-            if self.connection_time > 0:
-                self.log.info("delay after connect: %s", self.connection_time)
-                await asyncio.sleep(self.connection_time)
-
-    async def write_read(self, data, attempts=2):
-        async with self.lock:
-            for i in range(attempts):
-                try:
-                    await self.connect()
-                    coro = self._write_read(data)
-                    return await asyncio.wait_for(coro, self.timeout)
-                except Exception as error:
-                    self.log.error(
-                        "write_read error [%s/%s]: %r", i + 1, attempts, error
-                    )
-                    await self.close()
-
-    async def _write_read(self, data):
-        await self._write(data)
-        return await self._read()
-
-    def _transform_request(self, request):
+    def parse_request(self, request: bytearray) -> bytearray:
         uid = request[6]
-        new_uid = self.unit_id_remapping.setdefault(uid, uid)
-        if uid != new_uid:
-            request = bytearray(request)
+        if (new_uid := self.unit_id_map.get(uid)) is not None:
             request[6] = new_uid
-            self.log.debug("remapping unit ID %s to %s in request", uid, new_uid)
         return request
 
-    def _transform_reply(self, reply):
+    def parse_reply(self, reply: bytearray) -> bytearray:
         uid = reply[6]
-        inverse_unit_id_map = {v: k for k, v in self.unit_id_remapping.items()}
-        new_uid = inverse_unit_id_map.setdefault(uid, uid)
-        if uid != new_uid:
-            reply = bytearray(reply)
+        if (new_uid := self.unit_id_map_reverse.get(uid)) is not None:
             reply[6] = new_uid
-            self.log.debug("remapping unit ID %s to %s in reply", uid, new_uid)
         return reply
 
+    async def reconnect(self):
+        device = self.device
+        if device is not None:
+            await device.close()
+            self.device = None
+        coro = asyncio.open_connection(self.device_host, self.device_port)
+        if self.connection_time > 0:
+            await asyncio.sleep(self.connection_time)
+        self.device = Stream(*await asyncio.wait_for(coro, timeout=self.timeout))
+
+    async def write_to_device(self, message):
+        try:
+            if self.device is None:
+                await self.reconnect()
+                await self.device.write(message)
+            else:
+                try:
+                    await self.device.write(message)
+                except OSError:
+                    await self.reconnect()
+                    await self.device.write(message)
+            return Result.Ok()
+        except Exception as error:
+            return Result.Err(error)
+
+    async def to_device_loop(self):
+        while True:
+            message, client = await self.to_device_queue.get()
+            if await self.write_to_device(message):
+                await self.to_client_queue.put(client)
+            else:
+                await client.close()
+
+    async def to_client_loop(self):
+        while True:
+            client = await self.to_client_queue.get()
+            if reply := await self.device.read_message():
+                reply = self.parse_reply(reply.value)
+                if not await client.write_message(reply):
+                    await client.close()
+            else:
+                await client.close()
+
     async def handle_client(self, reader, writer):
-        async with Client(reader, writer) as client:
-            while True:
-                request = await client.read()
-                if not request:
-                    break
-                reply = await self.write_read(self._transform_request(request))
-                if not reply:
-                    break
-                result = await client.write(self._transform_reply(reply))
-                if not result:
-                    break
-
-    async def start(self):
-        self.server = await asyncio.start_server(
-            self.handle_client, self.host, self.port, start_serving=True
-        )
-
-    async def stop(self):
-        if self.server is not None:
-            self.server.close()
-            await self.server.wait_closed()
-        await self.close()
+        client = Stream(reader, writer)
+        while True:
+            if not (message := await client.read_message()):
+                break
+            message = self.parse_request(message.value)
+            await self.to_device_queue.put((message, client))
 
     async def serve_forever(self):
-        if self.server is None:
-            await self.start()
-        async with self.server:
-            self.log.info("Ready to accept requests on %s:%d", self.host, self.port)
-            await self.server.serve_forever()
+        url = self.device_url.geturl()
+        await asyncio.start_server(
+            self.handle_client, self.server_host, self.server_port
+        )
+        async with asyncio.TaskGroup() as tg:
+            tg.create_task(self.to_device_loop(), name=f"client->modbus {url}")
+            tg.create_task(self.to_client_loop(), name=f"modbus->client {url}")
+
+
+def create_bridges(config):
+    return [Bridge(device) for device in config["devices"]]
 
 
 def load_config(file_name):
     file_name = pathlib.Path(file_name)
     ext = file_name.suffix
     if ext.endswith("toml"):
-        if sys.version_info >= (3, 11):
-            from tomllib import load
-        else:
-            from toml import load
+        from tomllib import load
     elif ext.endswith("yml") or ext.endswith("yaml"):
         import yaml
 
@@ -253,8 +235,6 @@ def prepare_log(config):
         cfg.setdefault("version", 1)
         cfg.setdefault("disable_existing_loggers", False)
         logging.config.dictConfig(cfg)
-    warnings.simplefilter("always", DeprecationWarning)
-    logging.captureWarnings(True)
     return log
 
 
@@ -314,31 +294,12 @@ def create_config(args):
     return config
 
 
-def create_bridges(config):
-    return [ModBus(cfg) for cfg in config["devices"]]
-
-
-async def start_bridges(bridges):
-    coros = [bridge.start() for bridge in bridges]
-    await asyncio.gather(*coros)
-
-
-async def run_bridges(bridges, ready=None):
-    async with contextlib.AsyncExitStack() as stack:
-        coros = [stack.enter_async_context(bridge) for bridge in bridges]
-        await asyncio.gather(*coros)
-        await start_bridges(bridges)
-        if ready is not None:
-            ready.set(bridges)
-        coros = [bridge.serve_forever() for bridge in bridges]
-        await asyncio.gather(*coros)
-
-
 async def run(args=None, ready=None):
     args = parse_args(args)
     config = create_config(args)
     bridges = create_bridges(config)
-    await run_bridges(bridges, ready=ready)
+    async with asyncio.TaskGroup() as tg:
+        tasks = [tg.create_task(bridge.serve_forever()) for bridge in bridges]
 
 
 def main():
