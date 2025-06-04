@@ -309,6 +309,69 @@ vim examples/kubernetes/10_modbus-proxy.configmap.yaml
 kubectl apply -f examples/kubernetes
 ```
 
+## Installing modbus-proxy on Raspberry PI VENV (virutal environment)
+
+Create subfolder for all virutal environments and activate venv 'modbusproxy'
+```bash
+sudo mkdir python
+cd python
+python3 -m venv modbusproxy
+source modbusproxy/bin/activate
+```
+It should look like this now:
+```bash
+(modbusproxy) pi@raspberrypi:~/python $
+```
+
+Install modbus-proxy and create config yaml
+```bash
+pip3 install modbus-proxy
+pip3 install modbus-proxy[yaml]
+sudo nano modbus-config.yml
+```
+
+Update config file
+```yaml
+devices:
+# Daheimlader
+- modbus:
+    url: 192.168.###.###:502
+  listen:
+    bind: 0:5001
+# SolarEdge
+- modbus:
+    url: 192.168.###.###:1502
+  listen:
+    bind: 0:5002
+```
+Create autostart in systemd
+
+```bash
+cd /etc/systemd/system/
+sudo nano mproxy.service
+```
+
+```
+[Unit]
+Description=Modbus-Proxy
+After=network.target
+
+[Service]
+Type=simple
+Restart=always
+Environment="PATH=/home/pi/python/modbusproxy/bin"
+ExecStart= /home/pi/python/modbusproxy/bin/modbus-proxy -c /home/pi/python/modbus-config.yml
+user=pi
+
+[Install]
+WantedBy=multi-user.target
+```
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable mproxy.service
+sudo systemctl start mproxy.service
+```
+
 ## Credits
 
 ### Development Lead
