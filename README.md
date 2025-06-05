@@ -309,7 +309,7 @@ vim examples/kubernetes/10_modbus-proxy.configmap.yaml
 kubectl apply -f examples/kubernetes
 ```
 
-## Installing modbus-proxy on Raspberry PI VENV (virutal environment)
+## Installing modbus-proxy on Raspberry PI VENV (virtual environment)
 
 Create subfolder for all virutal environments and activate venv 'modbusproxy'
 ```bash
@@ -325,8 +325,7 @@ It should look like this now:
 
 Install modbus-proxy and create config yaml
 ```bash
-pip3 install modbus-proxy
-pip3 install modbus-proxy[yaml]
+pip install modbus-proxy[yaml]
 sudo nano modbus-config.yml
 ```
 
