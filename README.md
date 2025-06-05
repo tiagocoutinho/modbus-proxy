@@ -311,7 +311,7 @@ kubectl apply -f examples/kubernetes
 
 ## Installing modbus-proxy on Raspberry PI VENV (virtual environment)
 
-Create subfolder for all virutal environments and activate venv 'modbusproxy'
+Create subfolder for all virtual environments and activate venv 'modbusproxy'
 ```bash
 sudo mkdir python
 cd python
