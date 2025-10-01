@@ -11,6 +11,7 @@ import pathlib
 import argparse
 import warnings
 import contextlib
+import hashlib
 import logging.config
 from urllib.parse import urlparse
 
@@ -114,9 +115,9 @@ class Connection:
 
 
 class Client(Connection):
-    def __init__(self, reader, writer):
+    def __init__(self, reader, writer, modbus_id):
         peer = writer.get_extra_info("peername")
-        super().__init__(f"Client({peer[0]}:{peer[1]})", reader, writer)
+        super().__init__(f"Client({peer[0]}:{peer[1]}, {modbus_id})", reader, writer)
         self.log.info("new client connection")
 
 
@@ -125,7 +126,8 @@ class ModBus(Connection):
         modbus = config["modbus"]
         url = parse_url(modbus["url"])
         bind = parse_url(config["listen"]["bind"])
-        super().__init__(f"ModBus({url.hostname}:{url.port})", None, None)
+        self.id = hashlib.sha1(modbus["url"].encode()).hexdigest()[:6]
+        super().__init__(f"ModBus({url.hostname}:{url.port}, {self.id})", None, None)
         self.host = bind.hostname
         self.port = 502 if bind.port is None else bind.port
         self.modbus_host = url.hostname
@@ -192,7 +194,7 @@ class ModBus(Connection):
         return reply
 
     async def handle_client(self, reader, writer):
-        async with Client(reader, writer) as client:
+        async with Client(reader, writer, self.id) as client:
             while True:
                 request = await client.read()
                 if not request:
