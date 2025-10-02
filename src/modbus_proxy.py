@@ -6,6 +6,7 @@
 # Distributed under the GPLv3 license. See LICENSE for more info.
 
 
+import time
 import asyncio
 import pathlib
 import argparse
@@ -14,7 +15,7 @@ import contextlib
 import logging.config
 from urllib.parse import urlparse
 
-__version__ = "0.8.0"
+__version__ = "0.8.1-beta3"
 
 
 DEFAULT_LOG_CONFIG = {
@@ -25,7 +26,7 @@ DEFAULT_LOG_CONFIG = {
     "handlers": {
         "console": {"class": "logging.StreamHandler", "formatter": "standard"}
     },
-    "root": {"handlers": ["console"], "level": "INFO"},
+    "root": {"handlers": ["console"], "level": "DEBUG"},
 }
 
 log = logging.getLogger("modbus-proxy")
@@ -85,7 +86,7 @@ class Connection:
         try:
             await self._write(data)
         except Exception as error:
-            self.log.error("writting error: %r", error)
+            self.log.error("writing error: %r", error)
             await self.close()
             return False
         return True
@@ -135,12 +136,49 @@ class ModBus(Connection):
         self.unit_id_remapping = config.get("unit_id_remapping") or {}
         self.server = None
         self.lock = asyncio.Lock()
+        self.idle_time = modbus.get("idle_time", 0)
+        self.last_activity_ts = float("Inf")
+        self.idle_tracker_task = None
+
+    def activity(method):
+        """Decorator for methods that interact with remote modbus devices."""
+        async def wrapper(self, *args, **kwargs):
+            # suspend idle tracker while an "activity" method is running
+            self.last_activity_ts = float("Inf")
+            try:
+                return await method(self, *args, **kwargs)
+            finally:
+                # update last activity timestamp
+                self.last_activity_ts = time.time()
+        return wrapper
+
+    async def idle_tracker(self):
+        """Track if current connection is idle and close it upon timeout."""
+        self.log.info("starting idle tracker with %d seconds of idle time", self.idle_time)
+        while (current_ts := time.time()) - self.last_activity_ts < self.idle_time:
+            await asyncio.sleep(min(self.last_activity_ts + self.idle_time - current_ts, self.idle_time) + 1)
+            self.log.debug("checking connection activity")
+        try:
+            self.log.info("idle tracker timed out")
+            await self.close()
+        except asyncio.CancelledError:
+            pass
 
     @property
     def address(self):
         if self.server is not None:
             return self.server.sockets[0].getsockname()
 
+    async def close(self):
+        await super().close()
+        try:
+            self.idle_tracker_task.cancel()
+        except Exception:
+            pass
+        finally:
+            self.idle_tracker_task = None
+
+    @activity
     async def open(self):
         self.log.info("connecting to modbus...")
         self.reader, self.writer = await asyncio.open_connection(
@@ -154,12 +192,16 @@ class ModBus(Connection):
             if self.connection_time > 0:
                 self.log.info("delay after connect: %s", self.connection_time)
                 await asyncio.sleep(self.connection_time)
+            if self.idle_time > 0:
+                self.idle_tracker_task = asyncio.create_task(self.idle_tracker())
 
+    @activity
     async def write_read(self, data, attempts=2):
         async with self.lock:
             for i in range(attempts):
                 try:
                     await self.connect()
+                    await asyncio.sleep(0.1)
                     coro = self._write_read(data)
                     return await asyncio.wait_for(coro, self.timeout)
                 except Exception as error:
@@ -167,6 +209,7 @@ class ModBus(Connection):
                         "write_read error [%s/%s]: %r", i + 1, attempts, error
                     )
                     await self.close()
+                    await asyncio.sleep(5)
 
     async def _write_read(self, data):
         await self._write(data)
@@ -277,6 +320,12 @@ def parse_args(args=None):
         help="delay after establishing connection with modbus before first request",
     )
     parser.add_argument(
+        "--modbus-idle-time",
+        type=float,
+        default=0,
+        help="max idle time of modbus connection before closing it",
+    )
+    parser.add_argument(
         "--timeout",
         type=float,
         default=10,
@@ -304,6 +353,7 @@ def create_config(args):
                     "url": args.modbus,
                     "timeout": args.timeout,
                     "connection_time": args.modbus_connection_time,
+                    "idle_time": args.modbus_idle_time,
                 },
                 "listen": listen,
             }
