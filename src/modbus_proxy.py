@@ -133,6 +133,7 @@ class ModBus(Connection):
         self.modbus_port = url.port
         self.timeout = modbus.get("timeout", None)
         self.connection_time = modbus.get("connection_time", 0)
+        self.reconnect_delay = modbus.get("reconnect_delay", 0)
         self.unit_id_remapping = config.get("unit_id_remapping") or {}
         self.server = None
         self.lock = asyncio.Lock()
@@ -212,7 +213,8 @@ class ModBus(Connection):
                         "write_read error [%s/%s]: %r", i + 1, attempts, error
                     )
                     await self.close()
-                    await asyncio.sleep(5)
+                    if self.reconnect_delay > 0:
+                        await asyncio.sleep(self.reconnect_delay)
 
     async def _write_read(self, data):
         await self._write(data)
@@ -329,6 +331,12 @@ def parse_args(args=None):
         help="max idle time for modbus connections before closing it (disable with 0)",
     )
     parser.add_argument(
+        "--modbus-reconnect-delay",
+        type=float,
+        default=0,
+        help="delay before a new connection after an error",
+    )
+    parser.add_argument(
         "--timeout",
         type=float,
         default=10,
@@ -357,6 +365,7 @@ def create_config(args):
                     "timeout": args.timeout,
                     "connection_time": args.modbus_connection_time,
                     "idle_time": args.modbus_idle_time,
+                    "reconnect_delay": args.modbus_reconnect_delay
                 },
                 "listen": listen,
             }
