@@ -156,9 +156,17 @@ class ModBus(Connection):
 
     async def _idle_tracker(self):
         """Track the connection and close it if it remains idle for more then `self.idle_time`."""
-        self.log.info("starting idle tracker with %d seconds of max idle time", self.idle_time)
+        self.log.info(
+            "starting idle tracker with %d seconds of max idle time",
+            self.idle_time
+        )
         while (current_ts := time.time()) - self.last_activity_ts < self.idle_time:
-            await asyncio.sleep(min(self.last_activity_ts + self.idle_time - current_ts, self.idle_time) + 1)
+            await asyncio.sleep(
+                min(
+                    self.last_activity_ts + self.idle_time - current_ts,
+                    self.idle_time
+                ) + 1
+            )
             self.log.debug("idle tracker check")
         self.log.info("idle tracker timed out")
         await self.close(True)
