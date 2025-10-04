@@ -15,7 +15,7 @@ import contextlib
 import logging.config
 from urllib.parse import urlparse
 
-__version__ = "0.8.1-beta3"
+__version__ = "0.8.1-beta3.1"
 
 
 DEFAULT_LOG_CONFIG = {
@@ -140,45 +140,40 @@ class ModBus(Connection):
         self.last_activity_ts = float("Inf")
         self.idle_tracker_task = None
 
-    def activity(method):
+    def _activity(method):
         """Decorator for methods that interact with remote modbus devices."""
         async def wrapper(self, *args, **kwargs):
-            # suspend idle tracker while an "activity" method is running
+            self.log.debug("activity started")
+            # prevent self.idle_tracker_task to close then connection while an activity is running
             self.last_activity_ts = float("Inf")
             try:
                 return await method(self, *args, **kwargs)
             finally:
                 # update last activity timestamp
                 self.last_activity_ts = time.time()
+                self.log.debug("activity ended")
         return wrapper
 
-    async def idle_tracker(self):
-        """Track if current connection is idle and close it upon timeout."""
-        self.log.info("starting idle tracker with %d seconds of idle time", self.idle_time)
+    async def _idle_tracker(self):
+        """Track the connection and close it if it remains idle for more then `self.idle_time`."""
+        self.log.info("starting idle tracker with %d seconds of max idle time", self.idle_time)
         while (current_ts := time.time()) - self.last_activity_ts < self.idle_time:
             await asyncio.sleep(min(self.last_activity_ts + self.idle_time - current_ts, self.idle_time) + 1)
-            self.log.debug("checking connection activity")
-        try:
-            self.log.info("idle tracker timed out")
-            await self.close()
-        except asyncio.CancelledError:
-            pass
+            self.log.debug("idle tracker check")
+        self.log.info("idle tracker timed out")
+        await self.close(True)
 
     @property
     def address(self):
         if self.server is not None:
             return self.server.sockets[0].getsockname()
 
-    async def close(self):
-        await super().close()
-        try:
+    async def close(self, _idle=False):
+        if not _idle:
             self.idle_tracker_task.cancel()
-        except Exception:
-            pass
-        finally:
-            self.idle_tracker_task = None
+        await super().close()
 
-    @activity
+    @_activity
     async def open(self):
         self.log.info("connecting to modbus...")
         self.reader, self.writer = await asyncio.open_connection(
@@ -193,9 +188,9 @@ class ModBus(Connection):
                 self.log.info("delay after connect: %s", self.connection_time)
                 await asyncio.sleep(self.connection_time)
             if self.idle_time > 0:
-                self.idle_tracker_task = asyncio.create_task(self.idle_tracker())
+                self.idle_tracker_task = asyncio.create_task(self._idle_tracker())
 
-    @activity
+    @_activity
     async def write_read(self, data, attempts=2):
         async with self.lock:
             for i in range(attempts):
@@ -323,7 +318,7 @@ def parse_args(args=None):
         "--modbus-idle-time",
         type=float,
         default=0,
-        help="max idle time of modbus connection before closing it",
+        help="max idle time for modbus connections before closing it (disable with 0)",
     )
     parser.add_argument(
         "--timeout",
