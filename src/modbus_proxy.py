@@ -140,6 +140,8 @@ class ModBus(Connection):
         self.idle_time = modbus.get("idle_time", 0)
         self.last_activity_ts = float("Inf")
         self.idle_tracker_task = None
+        self.request_delay_ns = modbus.get("request_delay", 0) * 1e6  # milli to nano
+        self.last_request_ts_ns = 0
 
     def _activity(method):
         """Decorator for methods that interact with remote modbus devices."""
@@ -205,9 +207,11 @@ class ModBus(Connection):
             for i in range(attempts):
                 try:
                     await self.connect()
-                    await asyncio.sleep(0.1)
+                    if time.time_ns() - self.last_request_ts_ns < self.request_delay_ns:
+                        self.log.debug("delaying request")
+                        await asyncio.sleep(self.request_delay_ns / 1e9)  # nano to sec
                     coro = self._write_read(data)
-                    return await asyncio.wait_for(coro, self.timeout)
+                    result = await asyncio.wait_for(coro, self.timeout)
                 except Exception as error:
                     self.log.error(
                         "write_read error [%s/%s]: %r", i + 1, attempts, error
@@ -215,6 +219,9 @@ class ModBus(Connection):
                     await self.close()
                     if self.reconnect_delay > 0:
                         await asyncio.sleep(self.reconnect_delay)
+                else:
+                    self.last_request_ts_ns = time.time_ns()
+                    return result
 
     async def _write_read(self, data):
         await self._write(data)
@@ -328,13 +335,20 @@ def parse_args(args=None):
         "--modbus-idle-time",
         type=float,
         default=0,
-        help="max idle time for modbus connections before closing it (disable with 0)",
+        help="max idle time in seconds before closing modbus connection (disable with 0)",
     )
     parser.add_argument(
         "--modbus-reconnect-delay",
         type=float,
         default=0,
-        help="delay before a new connection after an error",
+        help="delay in seconds before establishing a new connection to modbus "
+             "device after an error",
+    )
+    parser.add_argument(
+        "--modbus-request-delay",
+        type=int,
+        default=0,
+        help="minimum time to wait between two sequential requests (milliseconds)",
     )
     parser.add_argument(
         "--timeout",
@@ -365,7 +379,8 @@ def create_config(args):
                     "timeout": args.timeout,
                     "connection_time": args.modbus_connection_time,
                     "idle_time": args.modbus_idle_time,
-                    "reconnect_delay": args.modbus_reconnect_delay
+                    "reconnect_delay": args.modbus_reconnect_delay,
+                    "request_delay": args.modbus_request_delay,
                 },
                 "listen": listen,
             }
