@@ -140,7 +140,7 @@ class ModBus(Connection):
         self.idle_time = modbus.get("idle_time", 0)
         self.last_activity_ts = float("Inf")
         self.idle_tracker_task = None
-        self.request_delay_ns = modbus.get("request_delay", 0) * 1e6  # millis to nanoseconds
+        self.request_delay_ns = modbus.get("request_delay", 0) * 1e6  # ms to ns
         self.last_request_ts_ns = 0  # timestamp in nanoseconds
         self.connection_ttl = modbus.get("connection_ttl", 0)  # minutes
         self.ttl_monitor_task = None
@@ -149,7 +149,8 @@ class ModBus(Connection):
         """Decorator for methods that interact with remote modbus devices."""
         async def wrapper(self, *args, **kwargs):
             self.log.debug("activity started")
-            # prevent self.idle_tracker_task to close the connection while an activity is running
+            # prevent self.idle_tracker_task to close the connection while
+            # an activity is running
             self.last_activity_ts = float("Inf")
             try:
                 return await method(self, *args, **kwargs)
@@ -160,7 +161,7 @@ class ModBus(Connection):
         return wrapper
 
     async def _idle_tracker(self):
-        """Close modbus connection if it remains idle for more then `self.idle_time` seconds."""
+        """Close modbus connection if it remains idle."""
         self.log.info(
             "starting idle tracker with %d seconds of max idle time",
             self.idle_time
@@ -178,7 +179,10 @@ class ModBus(Connection):
 
     async def _ttl_monitor(self):
         """Close modbus connection after `self.connection_ttl` minutes since opening."""
-        self.log.debug("starting connection monitor with %d minutes ttl", self.connection_ttl)
+        self.log.debug(
+            "starting connection monitor with %d minutes ttl",
+            self.connection_ttl
+        )
         await asyncio.sleep(self.connection_ttl * 60)
         if self.opened:
             self.log.info("connection ttl reached")
@@ -352,13 +356,15 @@ def parse_args(args=None):
         "--modbus-connection-ttl",
         type=int,
         default=0,
-        help="max duration in minutes of a connection to modbus device (disable with 0)",
+        help="max duration in minutes of a connection to modbus "
+             "device (disable with 0)",
     )
     parser.add_argument(
         "--modbus-idle-time",
         type=float,
         default=0,
-        help="max idle time in seconds before closing modbus connection (disable with 0)",
+        help="max idle time in seconds before closing modbus "
+             "connection (disable with 0)",
     )
     parser.add_argument(
         "--modbus-reconnect-delay",
