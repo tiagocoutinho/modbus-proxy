@@ -26,7 +26,7 @@ DEFAULT_LOG_CONFIG = {
     "handlers": {
         "console": {"class": "logging.StreamHandler", "formatter": "standard"}
     },
-    "root": {"handlers": ["console"], "level": "DEBUG"},
+    "root": {"handlers": ["console"], "level": "INFO"},
 }
 
 log = logging.getLogger("modbus-proxy")
