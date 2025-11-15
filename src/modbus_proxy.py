@@ -15,7 +15,7 @@ import contextlib
 import logging.config
 from urllib.parse import urlparse
 
-__version__ = "0.8.1-beta3.dev2"
+__version__ = "0.8.1-beta3.dev3"
 
 
 DEFAULT_LOG_CONFIG = {
@@ -140,9 +140,9 @@ class ModBus(Connection):
         self.idle_time = modbus.get("idle_time", 0)
         self.last_activity_ts = float("Inf")
         self.idle_tracker_task = None
-        self.request_delay_ns = modbus.get("request_delay", 0) * 1e6  # ms to ns
+        self.request_delay_ns = modbus.get("request_delay", 0) * 1e9  # sec to ns
         self.last_request_ts_ns = 0  # timestamp in nanoseconds
-        self.connection_ttl = modbus.get("connection_ttl", 0)  # minutes
+        self.connection_ttl = modbus.get("connection_ttl", 0)
         self.ttl_monitor_task = None
 
     def _activity(method):
@@ -178,12 +178,12 @@ class ModBus(Connection):
         await self.close(_idle=True)
 
     async def _ttl_monitor(self):
-        """Close modbus connection after `self.connection_ttl` minutes since opening."""
-        self.log.debug(
-            "starting connection monitor with %d minutes ttl",
+        """Close modbus connection after `self.connection_ttl` seconds since opening."""
+        self.log.info(
+            "starting connection monitor with %d seconds ttl",
             self.connection_ttl
         )
-        await asyncio.sleep(self.connection_ttl * 60)
+        await asyncio.sleep(self.connection_ttl)
         if self.opened:
             self.log.info("connection ttl reached")
             async with self.lock:
@@ -354,9 +354,9 @@ def parse_args(args=None):
     )
     parser.add_argument(
         "--modbus-connection-ttl",
-        type=int,
+        type=float,
         default=0,
-        help="max duration in minutes of a connection to modbus "
+        help="max duration in seconds of a connection to modbus "
              "device (disable with 0)",
     )
     parser.add_argument(
@@ -375,9 +375,9 @@ def parse_args(args=None):
     )
     parser.add_argument(
         "--modbus-request-delay",
-        type=int,
+        type=float,
         default=0,
-        help="minimum time to wait between two sequential requests (milliseconds)",
+        help="minimum time to wait, in seconds, between two sequential requests",
     )
     parser.add_argument(
         "--timeout",
