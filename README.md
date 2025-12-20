@@ -383,7 +383,7 @@ sudo systemctl start mproxy.service
 
 ### Contributors
 
-None yet. Why not be the first?
+* Simone Rossetto <simros85@gmail.com>
 
 [pypi-python-versions]: https://img.shields.io/pypi/pyversions/modbus-proxy.svg
 [pypi-version]: https://img.shields.io/pypi/v/modbus-proxy.svg
