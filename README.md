@@ -43,6 +43,10 @@ devices:
     url: plc1.acme.org:502     # device url (mandatory)
     timeout: 10                # communication timeout (s) (optional, default: 10)
     connection_time: 0.1       # delay after connection (s) (optional, default: 0)
+    connection_ttl: 600        # max duration of the connection (s) (optional, default: 0, disabled)
+    idle_time: 5               # max idle time of the connection (s) (optional, default: 0, disabled)
+    reconnect_delay: 1         # delay reconnection after error (s) (optional, default: 0)
+    request_delay: 0.1         # delay each request (s) (optional, default: 0)
   listen:
     bind: 0:9000               # listening address (mandatory)
   unit_id_remapping:           # remap/forward unit IDs (optional, empty by default)
@@ -379,7 +383,7 @@ sudo systemctl start mproxy.service
 
 ### Contributors
 
-None yet. Why not be the first?
+* Simone Rossetto <simros85@gmail.com>
 
 [pypi-python-versions]: https://img.shields.io/pypi/pyversions/modbus-proxy.svg
 [pypi-version]: https://img.shields.io/pypi/v/modbus-proxy.svg

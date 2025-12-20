@@ -8,6 +8,7 @@
 """Tests for `modbus_proxy` package."""
 
 import os
+import time
 import json
 import asyncio
 from collections import namedtuple
@@ -24,7 +25,7 @@ from .conftest import REQ, REP, REQ2, REP2, REQ3_ORIGINAL, REP3_MODIFIED
 
 
 Args = namedtuple(
-    "Args", "config_file bind modbus modbus_connection_time timeout"
+    "Args", "config_file bind modbus modbus_connection_time timeout modbus_idle_time modbus_connection_ttl modbus_reconnect_delay modbus_request_delay"
 )
 
 
@@ -102,8 +103,8 @@ def test_parse_url(url, expected):
 @pytest.mark.parametrize(
     "args, expected",
     [
-        (["-c", "conf.yml"], Args("conf.yml", None, None, 0, 10)),
-        (["--config-file", "conf.yml"], Args("conf.yml", None, None, 0, 10)),
+        (["-c", "conf.yml"], Args("conf.yml", None, None, 0, 10, 0, 0, 0, 0)),
+        (["--config-file", "conf.yml"], Args("conf.yml", None, None, 0, 10, 0, 0, 0, 0)),
     ],
     ids=["-c", "--config-file"],
 )
@@ -114,6 +115,10 @@ def test_parse_args(args, expected):
     assert result.modbus == expected.modbus
     assert result.modbus_connection_time == expected.modbus_connection_time
     assert result.timeout == expected.timeout
+    assert result.modbus_idle_time == expected.modbus_idle_time
+    assert result.modbus_connection_ttl == expected.modbus_connection_ttl
+    assert result.modbus_reconnect_delay == expected.modbus_reconnect_delay
+    assert result.modbus_request_delay == expected.modbus_request_delay
 
 
 @pytest.mark.parametrize(
@@ -234,6 +239,152 @@ async def test_run(modbus_device, req, rep):
         await ready.wait()
         modbus = ready.data[0]
         await make_requests(modbus, [(req, rep)])
+    finally:
+        for bridge in ready.data:
+            await bridge.stop()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+
+@pytest.mark.parametrize(
+    "req, rep, idle",
+    [
+        (REQ, REP, 0),
+        (REQ, REP, 2),
+        (REQ, REP, 5),
+    ],
+    ids=["disabled", "2s", "5s"],
+)
+@pytest.mark.asyncio
+async def test_idle_time(modbus_device, req, rep, idle):
+    addr = "{}:{}".format(*modbus_device.address)
+    args = ["--modbus", addr, "--bind", "127.0.0.1:0", "--modbus-idle-time", f"{idle}"]
+    ready = Ready()
+    task = asyncio.create_task(run(args, ready))
+    try:
+        await ready.wait()
+        modbus = ready.data[0]
+        assert modbus.idle_time == idle
+        await make_requests(modbus, [(req, rep)])
+        assert modbus.opened
+
+        # After the idle_time (plus 1 sec for hard-coded delay
+        # and 1 second for sleep jitter) the connection is closed
+        # if idle_time > 0.
+        await asyncio.sleep(idle + 2)
+        assert (idle > 0 and not modbus.opened) or modbus.opened
+    finally:
+        for bridge in ready.data:
+            await bridge.stop()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+
+@pytest.mark.parametrize(
+    "req, rep, ttl",
+    [
+        (REQ, REP, 0),
+        (REQ, REP, 10),
+    ],
+    ids=["disabled", "10s"],
+)
+@pytest.mark.asyncio
+async def test_connection_ttl(modbus_device, req, rep, ttl):
+    addr = "{}:{}".format(*modbus_device.address)
+    args = ["--modbus", addr, "--bind", "127.0.0.1:0", "--modbus-connection-ttl", f"{ttl}"]
+    ready = Ready()
+    task = asyncio.create_task(run(args, ready))
+    try:
+        await ready.wait()
+        modbus = ready.data[0]
+        assert modbus.connection_ttl == ttl
+        await make_requests(modbus, [(req, rep)])
+
+        if ttl > 0:
+            # Wait less then connection ttl, the connection is still open.
+            await asyncio.sleep(ttl - 1)
+            assert modbus.opened
+            await make_requests(modbus, [(req, rep)])
+
+        # Wait again to pass the connection ttl, if enabled the connection
+        # will be closed.
+        await asyncio.sleep(3)
+        assert (ttl > 0 and not modbus.opened) or modbus.opened
+    finally:
+        for bridge in ready.data:
+            await bridge.stop()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+
+@pytest.mark.parametrize(
+    "req, rep, delay",
+    [
+        (REQ3_ORIGINAL, REP3_MODIFIED, 0),
+        (REQ3_ORIGINAL, REP3_MODIFIED, 3),
+    ],
+    ids=["0s", "3s"],
+)
+@pytest.mark.asyncio
+async def test_reconnect_delay(modbus_device, req, rep, delay):
+    addr = "{}:{}".format(*modbus_device.address)
+    args = ["--modbus", addr, "--bind", "127.0.0.1:0", "--modbus-reconnect-delay", f"{delay}"]
+    ready = Ready()
+    task = asyncio.create_task(run(args, ready))
+    try:
+        await ready.wait()
+        modbus = ready.data[0]
+        assert modbus.reconnect_delay == delay
+        t1 = time.time()
+        try:
+            await make_requests(modbus, [(req, rep)])
+        except:
+            pass
+
+        # The proxy execute 2 requests in case of error, so the total
+        # time should be greater then 2 times the delay.
+        assert (time.time() - t1) > 2 * delay
+    finally:
+        for bridge in ready.data:
+            await bridge.stop()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+
+@pytest.mark.parametrize(
+    "req, rep, delay",
+    [
+        (REQ2, REP2, 0),
+        (REQ2, REP2, 0.5),
+        (REQ2, REP2, 2),
+    ],
+    ids=["0s", "0.5s", "2s"],
+)
+@pytest.mark.asyncio
+async def test_request_delay(modbus_device, req, rep, delay):
+    addr = "{}:{}".format(*modbus_device.address)
+    args = ["--modbus", addr, "--bind", "127.0.0.1:0", "--modbus-request-delay", f"{delay}"]
+    ready = Ready()
+    task = asyncio.create_task(run(args, ready))
+    try:
+        await ready.wait()
+        modbus = ready.data[0]
+        assert modbus.request_delay_ns == delay * 1e9
+        t1 = time.time_ns()
+        await make_requests(modbus, [(req, rep)])
+        await make_requests(modbus, [(req, rep)])
+        t2 = time.time_ns()
+
+        # two sequential requests should last at least modbus.request_delay_ns
+        assert (t2 - t1) > modbus.request_delay_ns
     finally:
         for bridge in ready.data:
             await bridge.stop()

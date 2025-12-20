@@ -6,6 +6,7 @@
 # Distributed under the GPLv3 license. See LICENSE for more info.
 
 
+import time
 import asyncio
 import pathlib
 import argparse
@@ -14,7 +15,7 @@ import contextlib
 import logging.config
 from urllib.parse import urlparse
 
-__version__ = "0.8.0"
+__version__ = "0.8.1-beta3"
 
 
 DEFAULT_LOG_CONFIG = {
@@ -85,7 +86,7 @@ class Connection:
         try:
             await self._write(data)
         except Exception as error:
-            self.log.error("writting error: %r", error)
+            self.log.error("writing error: %r", error)
             await self.close()
             return False
         return True
@@ -132,15 +133,77 @@ class ModBus(Connection):
         self.modbus_port = url.port
         self.timeout = modbus.get("timeout", None)
         self.connection_time = modbus.get("connection_time", 0)
+        self.reconnect_delay = modbus.get("reconnect_delay", 0)
         self.unit_id_remapping = config.get("unit_id_remapping") or {}
         self.server = None
         self.lock = asyncio.Lock()
+        self.idle_time = modbus.get("idle_time", 0)
+        self.last_activity_ts = float("Inf")
+        self.idle_tracker_task = None
+        self.request_delay_ns = modbus.get("request_delay", 0) * 1e9  # sec to ns
+        self.last_request_ts_ns = 0  # timestamp in nanoseconds
+        self.connection_ttl = modbus.get("connection_ttl", 0)
+        self.ttl_monitor_task = None
+
+    def _activity(method):
+        """Decorator for methods that interact with remote modbus devices."""
+        async def wrapper(self, *args, **kwargs):
+            self.log.debug("activity started")
+            # prevent self.idle_tracker_task to close the connection while
+            # an activity is running
+            self.last_activity_ts = float("Inf")
+            try:
+                return await method(self, *args, **kwargs)
+            finally:
+                # update last activity timestamp
+                self.last_activity_ts = time.time()
+                self.log.debug("activity ended")
+        return wrapper
+
+    async def _idle_tracker(self):
+        """Close modbus connection if it remains idle."""
+        self.log.info(
+            "starting idle tracker with %d seconds of max idle time",
+            self.idle_time
+        )
+        while (current_ts := time.time()) - self.last_activity_ts < self.idle_time:
+            await asyncio.sleep(
+                min(
+                    self.last_activity_ts + self.idle_time - current_ts,
+                    self.idle_time
+                ) + 1
+            )
+            self.log.debug("idle tracker check")
+        self.log.info("idle tracker timed out")
+        await self.close(_idle=True)
+
+    async def _ttl_monitor(self):
+        """Close modbus connection after `self.connection_ttl` seconds since opening."""
+        self.log.info(
+            "starting connection monitor with %d seconds ttl",
+            self.connection_ttl
+        )
+        await asyncio.sleep(self.connection_ttl)
+        if self.opened:
+            self.log.info("connection ttl reached")
+            async with self.lock:
+                await self.close(_ttl=True)
 
     @property
     def address(self):
         if self.server is not None:
             return self.server.sockets[0].getsockname()
 
+    async def close(self, _idle=False, _ttl=False):
+        if not _idle and self.idle_tracker_task:
+            self.idle_tracker_task.cancel()
+            self.idle_tracker_task = None
+        if not _ttl and self.ttl_monitor_task:
+            self.ttl_monitor_task.cancel()
+            self.ttl_monitor_task = None
+        await super().close()
+
+    @_activity
     async def open(self):
         self.log.info("connecting to modbus...")
         self.reader, self.writer = await asyncio.open_connection(
@@ -154,19 +217,32 @@ class ModBus(Connection):
             if self.connection_time > 0:
                 self.log.info("delay after connect: %s", self.connection_time)
                 await asyncio.sleep(self.connection_time)
+            if self.idle_time > 0:
+                self.idle_tracker_task = asyncio.create_task(self._idle_tracker())
+            if self.connection_ttl > 0:
+                self.ttl_monitor_task = asyncio.create_task(self._ttl_monitor())
 
+    @_activity
     async def write_read(self, data, attempts=2):
         async with self.lock:
             for i in range(attempts):
                 try:
                     await self.connect()
+                    if time.time_ns() - self.last_request_ts_ns < self.request_delay_ns:
+                        self.log.debug("delaying request")
+                        await asyncio.sleep(self.request_delay_ns / 1e9)  # nano to sec
                     coro = self._write_read(data)
-                    return await asyncio.wait_for(coro, self.timeout)
+                    result = await asyncio.wait_for(coro, self.timeout)
                 except Exception as error:
                     self.log.error(
                         "write_read error [%s/%s]: %r", i + 1, attempts, error
                     )
                     await self.close()
+                    if self.reconnect_delay > 0:
+                        await asyncio.sleep(self.reconnect_delay)
+                else:
+                    self.last_request_ts_ns = time.time_ns()
+                    return result
 
     async def _write_read(self, data):
         await self._write(data)
@@ -277,6 +353,33 @@ def parse_args(args=None):
         help="delay after establishing connection with modbus before first request",
     )
     parser.add_argument(
+        "--modbus-connection-ttl",
+        type=float,
+        default=0,
+        help="max duration in seconds of a connection to modbus "
+             "device (disable with 0)",
+    )
+    parser.add_argument(
+        "--modbus-idle-time",
+        type=float,
+        default=0,
+        help="max idle time in seconds before closing modbus "
+             "connection (disable with 0)",
+    )
+    parser.add_argument(
+        "--modbus-reconnect-delay",
+        type=float,
+        default=0,
+        help="delay in seconds before establishing a new connection to modbus "
+             "device after an error",
+    )
+    parser.add_argument(
+        "--modbus-request-delay",
+        type=float,
+        default=0,
+        help="minimum time to wait, in seconds, between two sequential requests",
+    )
+    parser.add_argument(
         "--timeout",
         type=float,
         default=10,
@@ -304,6 +407,10 @@ def create_config(args):
                     "url": args.modbus,
                     "timeout": args.timeout,
                     "connection_time": args.modbus_connection_time,
+                    "connection_ttl": args.modbus_connection_ttl,
+                    "idle_time": args.modbus_idle_time,
+                    "reconnect_delay": args.modbus_reconnect_delay,
+                    "request_delay": args.modbus_request_delay,
                 },
                 "listen": listen,
             }
