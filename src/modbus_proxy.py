@@ -188,6 +188,7 @@ class ModBus(Connection):
         self.timeout = modbus.get("timeout", None)
         self.connection_time = modbus.get("connection_time", 0)
         self.rtu = modbus.get("mode", "tcp") == "rtuovertcp"
+        self.rtu_echo = self.rtu and modbus.get("strip_rtu_echo", False)
         self.unit_id_remapping = config.get("unit_id_remapping") or {}
         self.server = None
         self.lock = asyncio.Lock()
@@ -226,7 +227,10 @@ class ModBus(Connection):
 
     async def _write_read(self, data):
         if self.rtu:
-            await self._write(tcp_to_rtu(data))
+            rtu_request = tcp_to_rtu(data)
+            await self._write(rtu_request)
+            if self.rtu_echo:
+                await self.reader.readexactly(len(rtu_request))
             return rtu_to_tcp(data[:2], await self._read_rtu())
         await self._write(data)
         return await self._read()

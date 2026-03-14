@@ -39,12 +39,19 @@ REQ2_RTU = tcp_to_rtu(REQ2)
 REP2_RTU = tcp_to_rtu(REP2)
 
 
+async def _make_device(cb):
+    server = await asyncio.start_server(cb, host="127.0.0.1")
+    server.address = server.sockets[0].getsockname()
+    return server
+
+
 async def _read_rtu_request(r):
     """Read one RTU request frame from the fake device stream."""
     return await read_rtu_frame(r)
 
 
 RTU_REPLIES = {REQ_RTU: REP_RTU, REQ2_RTU: REP2_RTU}
+TCP_REPLIES = {REQ: REP, REQ2: REP2, REQ3_MODIFIED: REP3_ORIGINAL}
 
 
 @pytest_asyncio.fixture
@@ -55,9 +62,8 @@ async def modbus_device_rtu():
             w.write(RTU_REPLIES[data])
             await w.drain()
 
+    server = await _make_device(cb)
     try:
-        server = await asyncio.start_server(cb, host="127.0.0.1")
-        server.address = server.sockets[0].getsockname()
         yield server
     finally:
         server.close()
@@ -82,25 +88,52 @@ async def modbus_rtu(modbus_device_rtu):
 
 
 @pytest_asyncio.fixture
+async def modbus_device_rtu_echo():
+    async def cb(r, w):
+        while True:
+            data = await _read_rtu_request(r)
+            w.write(data)  # echo the request back first
+            w.write(RTU_REPLIES[data])
+            await w.drain()
+
+    server = await _make_device(cb)
+    try:
+        yield server
+    finally:
+        server.close()
+        await server.wait_closed()
+
+
+@pytest_asyncio.fixture
+async def modbus_rtu_echo(modbus_device_rtu_echo):
+    cfg = {
+        "modbus": {
+            "url": "{}:{}".format(*modbus_device_rtu_echo.address),
+            "mode": "rtuovertcp",
+            "strip_rtu_echo": True,
+        },
+        "listen": {"bind": "127.0.0.1:0"},
+    }
+    modbus = ModBus(cfg)
+    await modbus.start()
+    modbus.device = modbus_device_rtu_echo
+    async with modbus:
+        yield modbus
+    modbus_device_rtu_echo.close()
+
+
+@pytest_asyncio.fixture
 async def modbus_device():
     async def cb(r, w):
         while True:
             data = await r.readexactly(6)
             size = int.from_bytes(data[4:6], "big")
             data += await r.readexactly(size)
-            if data == REQ:
-                reply = REP
-            elif data == REQ2:
-                reply = REP2
-            elif data == REQ3_MODIFIED:
-                reply = REP3_ORIGINAL
-
-            w.write(reply)
+            w.write(TCP_REPLIES[data])
             await w.drain()
 
+    server = await _make_device(cb)
     try:
-        server = await asyncio.start_server(cb, host="127.0.0.1")
-        server.address = server.sockets[0].getsockname()
         yield server
     finally:
         server.close()

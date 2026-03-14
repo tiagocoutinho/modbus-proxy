@@ -20,7 +20,7 @@ import pytest
 
 from modbus_proxy import parse_url, parse_args, load_config, run
 
-from .conftest import REQ, REP, REQ2, REP2, REQ3_ORIGINAL, REP3_MODIFIED
+from .conftest import REQ, REP, REQ2, REP2, REQ3_ORIGINAL, REP3_MODIFIED, REQ_RTU, REQ2_RTU
 
 
 Args = namedtuple(
@@ -263,3 +263,19 @@ async def test_device_not_connected(modbus):
 @pytest.mark.asyncio
 async def test_modbus_rtu(modbus_rtu, req, rep):
     await make_requests(modbus_rtu, [(req, rep)])
+
+
+@pytest.mark.parametrize(
+    "req, rep, rtu_req",
+    [
+        (REQ, REP, REQ_RTU),
+        (REQ2, REP2, REQ2_RTU),
+    ],
+    ids=["req1", "req2"],
+)
+@pytest.mark.asyncio
+async def test_modbus_rtu_echo(modbus_rtu_echo, req, rep, rtu_req):
+    # Verify correct replies are received despite the device echoing each request
+    await make_requests(modbus_rtu_echo, [(req, rep)])
+    # Multiple sequential requests to confirm echo stripping works consistently
+    await make_requests(modbus_rtu_echo, 3 * [(req, rep)])
