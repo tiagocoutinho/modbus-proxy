@@ -250,3 +250,16 @@ async def test_device_not_connected(modbus):
 
     with pytest.raises(asyncio.IncompleteReadError):
         await make_requests(modbus, [(REQ, REP)])
+
+
+@pytest.mark.parametrize(
+    "req, rep",
+    [
+        (REQ, REP),
+        (REQ2, REP2),
+    ],
+    ids=["req1", "req2"],
+)
+@pytest.mark.asyncio
+async def test_modbus_rtu(modbus_rtu, req, rep):
+    await make_requests(modbus_rtu, [(req, rep)])
