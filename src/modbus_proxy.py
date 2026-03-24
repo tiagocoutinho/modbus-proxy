@@ -31,6 +31,61 @@ DEFAULT_LOG_CONFIG = {
 log = logging.getLogger("modbus-proxy")
 
 
+def crc16(data):
+    """Compute Modbus CRC-16 checksum."""
+    crc = 0xFFFF
+    for byte in data:
+        crc ^= byte
+        for _ in range(8):
+            if crc & 1:
+                crc = (crc >> 1) ^ 0xA001
+            else:
+                crc >>= 1
+    return crc
+
+
+def tcp_to_rtu(tcp_frame):
+    """Strip the 6-byte MBAP header and append a CRC to form an RTU frame."""
+    body = tcp_frame[6:]
+    return body + crc16(body).to_bytes(2, "little")
+
+
+RTU_MIN_FRAME = 4    # uid(1) + fc(1) + CRC(2) — shortest valid RTU frame
+RTU_MAX_FRAME = 256  # hard safety cap
+
+
+async def read_rtu_frame(reader: asyncio.StreamReader) -> bytes:
+    """Read exactly one RTU frame from *reader* and return it (CRC included).
+
+    RTU has no length field in its framing — the CRC is the canonical frame
+    delimiter.  We accumulate bytes one at a time and stop as soon as
+    crc16(accumulated) == 0, which is the standard property of CRC-16 over a
+    complete, correctly-framed message (payload + CRC bytes).
+
+    This requires no knowledge of function-code-specific payload layouts and
+    handles every function code — standard reads/writes, fixed-length write
+    acknowledgements, and Huawei's private 0x41 — identically.
+
+    Raises asyncio.TimeoutError if the caller wraps this in wait_for().
+    Raises ValueError if RTU_MAX_FRAME bytes arrive without a valid CRC.
+    """
+    frame = bytearray()
+    while len(frame) < RTU_MAX_FRAME:
+        frame += await reader.readexactly(1)
+        if len(frame) >= RTU_MIN_FRAME and crc16(bytes(frame)) == 0:
+            return bytes(frame)
+    raise ValueError(
+        f"no valid RTU frame CRC found within {RTU_MAX_FRAME} bytes; "
+        f"partial frame: {bytes(frame).hex()}"
+    )
+
+
+def rtu_to_tcp(tid, rtu_frame):
+    """Strip the trailing CRC and prepend an MBAP header to form a TCP frame."""
+    body = rtu_frame[:-2]
+    return tid + b"\x00\x00" + len(body).to_bytes(2, "big") + body
+
+
 def parse_url(url):
     if "://" not in url:
         url = f"tcp://{url}"
@@ -91,8 +146,8 @@ class Connection:
         return True
 
     async def _read(self):
-        """Read ModBus TCP message"""
-        # TODO: Handle Modbus RTU and ASCII
+        """Read a Modbus TCP frame."""
+        # TODO: Handle Modbus ASCII
         header = await self.reader.readexactly(6)
         size = int.from_bytes(header[4:], "big")
         reply = header + await self.reader.readexactly(size)
@@ -132,6 +187,8 @@ class ModBus(Connection):
         self.modbus_port = url.port
         self.timeout = modbus.get("timeout", None)
         self.connection_time = modbus.get("connection_time", 0)
+        self.rtu = modbus.get("mode", "tcp") == "rtuovertcp"
+        self.rtu_echo = self.rtu and modbus.get("strip_rtu_echo", False)
         self.unit_id_remapping = config.get("unit_id_remapping") or {}
         self.server = None
         self.lock = asyncio.Lock()
@@ -169,8 +226,20 @@ class ModBus(Connection):
                     await self.close()
 
     async def _write_read(self, data):
+        if self.rtu:
+            rtu_request = tcp_to_rtu(data)
+            await self._write(rtu_request)
+            if self.rtu_echo:
+                await self.reader.readexactly(len(rtu_request))
+            return rtu_to_tcp(data[:2], await self._read_rtu())
         await self._write(data)
         return await self._read()
+
+    async def _read_rtu(self):
+        """Read a Modbus RTU reply frame from the device."""
+        frame = await read_rtu_frame(self.reader)
+        self.log.debug("received RTU %r", frame)
+        return frame
 
     def _transform_request(self, request):
         uid = request[6]
