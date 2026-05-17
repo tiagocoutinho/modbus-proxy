@@ -159,6 +159,79 @@ WantedBy=multi-user.target
 
 The file names given here are examples, you can choose other names, if you wish.
 
+## SunSpec Register Type Conversion
+ 
+The SunSpec standard permits vendors to implement Modbus register data in two
+distinct formats: an **integer model** (values as `int16` with a signed scale
+factor) and a **float model** (values as `float32`). Both are spec-compliant,
+but they are not interoperable — a client expecting float32 will misinterpret
+int16+SF data, and vice versa.
+ 
+The `register_conversions` option allows the proxy to transparently convert
+register values between these two representations on a per-listener basis.
+Clients that require a different format connect to a dedicated port; the
+underlying device is only queried once regardless of how many listeners are
+configured.
+ 
+#### Multiple listeners per device
+ 
+The `listeners` key (plural) replaces the single `listen` key when multiple
+endpoints are needed. Each listener binds to its own port and can have
+independent conversion rules:
+
+
+```yaml
+devices:
+  - modbus:
+      url: inverter.local:1502
+    listeners:
+      - bind: 0:5020          # pass-through — no conversion
+      - bind: 0:5021          # converted output for incompatible client
+        register_conversions:
+          - address: 40084     # value register (base-1)
+            sf_address: 40085  # scale factor register (base-1, required for int16 source)
+            source_type: int16
+            target_type: float32
+```
+ 
+The legacy `listen` (singular) key without `register_conversions` continues
+to work unchanged.
+ 
+#### Configuration reference
+ 
+| Field | Required | Description |
+|---|---|---|
+| `address` | yes | Modbus register address (base-1) of the value register |
+| `sf_address` | when `source_type: int16` | Address of the associated scale factor register (base-1) |
+| `source_type` | yes | Data type the real device sends: `int16` or `float32` |
+| `target_type` | yes | Data type this listener should serve: `int16` or `float32` |
+ 
+Supported conversion directions:
+ 
+| `source_type` | `target_type` | Typical use case |
+|---|---|---|
+| `int16` | `float32` | Device uses integer model, client expects float model |
+| `float32` | `int16` | Device uses float model, client expects integer model |
+ 
+#### Scale factor caching
+ 
+When converting `int16 → float32`, the proxy needs the scale factor register
+to compute the real value. If the scale factor register is not included in the
+same polling window as the value register, the proxy uses the most recently
+cached scale factor. For best results, configure your client to read both the
+value and scale factor registers in a single request.
+ 
+#### Testing with mbpoll
+ 
+When verifying float32 output with `mbpoll`, use the `-B` flag to select
+Big-Endian byte order, which matches the SunSpec specification:
+ 
+```bash
+# Read converted float32 output
+mbpoll -t 4:float -B -r 40084 -c 2 <proxy-host> -p 5021
+```
+
+
 ## Docker
 
 This project ships with a basic [Dockerfile](
