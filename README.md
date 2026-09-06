@@ -43,11 +43,20 @@ devices:
     url: plc1.acme.org:502     # device url (mandatory)
     timeout: 10                # communication timeout (s) (optional, default: 10)
     connection_time: 0.1       # delay after connection (s) (optional, default: 0)
+    attempts: 2                # total attempts per request (optional, default: 2, min: 1)
+    reconnect_delay: 0.0       # delay between retries (s) (optional, default: 0)
   listen:
     bind: 0:9000               # listening address (mandatory)
   unit_id_remapping:           # remap/forward unit IDs (optional, empty by default)
     1: 0
 ```
+
+### Retry Configuration & Multi-Client Starvation Mitigation
+
+* `attempts`: Specifies the **total number of attempts** (initial try plus retries) per request (default: `2`, must be $\ge 1$).
+  * *Multi-Client Environments:* Requests to the backend are serialized via an internal mutex lock. In multi-client setups (e.g. Home Assistant, EV chargers, energy managers) where the backend device or bridge is slow or temporarily unreachable, setting `attempts: 1` eliminates redundant retry cycles and mitigates lock starvation of competing clients.
+* `reconnect_delay`: Delay in seconds to sleep between failed retry attempts before establishing a new connection (default: `0.0`, must be $\ge 0.0$).
+* `retry_count`: *(Deprecated)* Legacy option specifying additional retries. If provided, it is automatically mapped to `attempts = retry_count + 1`. Use `attempts` directly instead.
 
 Assuming you saved this file as `modbus-config.yml`, start the server with:
 
