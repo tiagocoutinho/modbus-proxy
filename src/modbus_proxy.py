@@ -41,6 +41,31 @@ def parse_url(url):
     return result
 
 
+class ModBusError(Exception):
+    """Base ModBus exception."""
+
+
+class TransactionIdMismatchError(ModBusError):
+    """Raised when response TID does not match request TID."""
+
+
+def has_valid_modbus_tcp_mbap(data: bytes) -> bool:
+    """
+    Validates MBAP structure for Modbus TCP TID comparison:
+    - Header length >= 7 bytes (TID: 2, PID: 2, Length: 2, UnitID: 1)
+    - Minimum Modbus frame: 8 bytes (MBAP + at least 1 byte function code)
+    - Protocol Identifier == 0x0000
+    - MBAP length field == len(data) - 6
+    """
+    if not data or len(data) < 8:
+        return False
+    protocol_id = int.from_bytes(data[2:4], "big")
+    if protocol_id != 0:
+        return False
+    length_field = int.from_bytes(data[4:6], "big")
+    return length_field == len(data) - 6
+
+
 class Connection:
     def __init__(self, name, reader, writer):
         self.name = name
@@ -162,6 +187,10 @@ class ModBus(Connection):
                     await self.connect()
                     coro = self._write_read(data)
                     return await asyncio.wait_for(coro, self.timeout)
+                except asyncio.CancelledError:
+                    self.log.info("write_read cancelled, closing connection")
+                    await self.close()
+                    raise
                 except Exception as error:
                     self.log.error(
                         "write_read error [%s/%s]: %r", i + 1, attempts, error
@@ -170,7 +199,28 @@ class ModBus(Connection):
 
     async def _write_read(self, data):
         await self._write(data)
-        return await self._read()
+        reply = await self._read()
+        if (
+            reply
+            and has_valid_modbus_tcp_mbap(data)
+            and has_valid_modbus_tcp_mbap(reply)
+        ):
+            req_tid = int.from_bytes(data[:2], "big")
+            resp_tid = int.from_bytes(reply[:2], "big")
+            if req_tid != resp_tid:
+                self.log.warning(
+                    "Modbus TCP transaction ID mismatch: "
+                    "expected 0x%04x, received 0x%04x. "
+                    "Closing desynchronized backend connection.",
+                    req_tid,
+                    resp_tid,
+                )
+                await self.close()
+                raise TransactionIdMismatchError(
+                    f"Transaction ID mismatch: "
+                    f"expected 0x{req_tid:04x}, received 0x{resp_tid:04x}"
+                )
+        return reply
 
     def _transform_request(self, request):
         uid = request[6]

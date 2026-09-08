@@ -70,4 +70,4 @@ async def modbus(modbus_device):
     modbus.cfg = cfg
     async with modbus:
         yield modbus
-    modbus_device.close()
+    modbus_device.close()
