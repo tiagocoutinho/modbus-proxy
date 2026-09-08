@@ -132,6 +132,28 @@ class ModBus(Connection):
         self.modbus_port = url.port
         self.timeout = modbus.get("timeout", None)
         self.connection_time = modbus.get("connection_time", 0)
+        if "attempts" in modbus:
+            self.attempts = int(modbus["attempts"])
+            if self.attempts < 1:
+                raise ValueError(f"attempts must be >= 1, got {self.attempts}")
+        elif "retry_count" in modbus:
+            retry_count = int(modbus["retry_count"])
+            if retry_count < 0:
+                raise ValueError(f"retry_count must be >= 0, got {retry_count}")
+            self.attempts = retry_count + 1
+            self.log.warning(
+                "'retry_count' is deprecated and will be removed in a future release. "
+                "Use 'attempts: %d' (total attempts) instead.",
+                self.attempts,
+            )
+        else:
+            self.attempts = 2
+
+        self.reconnect_delay = float(modbus.get("reconnect_delay", 0.0))
+        if self.reconnect_delay < 0:
+            raise ValueError(
+                f"reconnect_delay must be >= 0, got {self.reconnect_delay}"
+            )
         self.unit_id_remapping = config.get("unit_id_remapping") or {}
         self.server = None
         self.lock = asyncio.Lock()
@@ -155,7 +177,9 @@ class ModBus(Connection):
                 self.log.info("delay after connect: %s", self.connection_time)
                 await asyncio.sleep(self.connection_time)
 
-    async def write_read(self, data, attempts=2):
+    async def write_read(self, data, attempts=None):
+        if attempts is None:
+            attempts = self.attempts
         async with self.lock:
             for i in range(attempts):
                 try:
@@ -167,6 +191,8 @@ class ModBus(Connection):
                         "write_read error [%s/%s]: %r", i + 1, attempts, error
                     )
                     await self.close()
+                    if i < attempts - 1 and self.reconnect_delay > 0:
+                        await asyncio.sleep(self.reconnect_delay)
 
     async def _write_read(self, data):
         await self._write(data)
@@ -197,7 +223,9 @@ class ModBus(Connection):
                 request = await client.read()
                 if not request:
                     break
-                reply = await self.write_read(self._transform_request(request))
+                reply = await self.write_read(
+                    self._transform_request(request), attempts=self.attempts
+                )
                 if not reply:
                     break
                 result = await client.write(self._transform_reply(reply))
@@ -282,10 +310,26 @@ def parse_args(args=None):
         default=10,
         help="modbus connection and request timeout in seconds",
     )
+    parser.add_argument(
+        "--attempts",
+        type=int,
+        default=2,
+        help="total attempts to send request to modbus",
+    )
+    parser.add_argument(
+        "--reconnect-delay",
+        type=float,
+        default=0,
+        help="delay between retry attempts in seconds",
+    )
     options = parser.parse_args(args=args)
 
     if not options.config_file and not options.modbus:
         parser.exit(1, "must give a config-file or/and a --modbus")
+    if options.attempts < 1:
+        parser.error(f"--attempts must be >= 1, got {options.attempts}")
+    if options.reconnect_delay < 0:
+        parser.error(f"--reconnect-delay must be >= 0, got {options.reconnect_delay}")
     return options
 
 
@@ -304,6 +348,8 @@ def create_config(args):
                     "url": args.modbus,
                     "timeout": args.timeout,
                     "connection_time": args.modbus_connection_time,
+                    "attempts": args.attempts,
+                    "reconnect_delay": args.reconnect_delay,
                 },
                 "listen": listen,
             }
